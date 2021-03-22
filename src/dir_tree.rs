@@ -34,13 +34,20 @@ impl Entry {
         w: &mut W,
         name: &Path,
         prefix: &str,
-        last: bool,
+        root_entry: bool,
+        last_in_dir: bool,
     ) -> io::Result<()> {
         write!(
             w,
             "{prefix}{leader}{name}",
             prefix = prefix,
-            leader = if last { "└── " } else { "├── " },
+            leader = if root_entry {
+                ""
+            } else if last_in_dir {
+                "└── "
+            } else {
+                "├── "
+            },
             name = name.display(),
         )?;
 
@@ -51,10 +58,20 @@ impl Entry {
         }
 
         if let Entry::Directory(dir) = self {
-            let new_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+            let new_prefix = format!(
+                "{}{}",
+                prefix,
+                if root_entry {
+                    ""
+                } else if last_in_dir {
+                    "    "
+                } else {
+                    "│   "
+                }
+            );
             let mut it = dir.0.iter().peekable();
             while let Some((name, entry)) = it.next() {
-                entry.write_to(w, name, &new_prefix, it.peek().is_none())?;
+                entry.write_to(w, name, &new_prefix, false, it.peek().is_none())?;
             }
         }
         Ok(())
@@ -70,6 +87,8 @@ pub enum DirTreeError {
     FileExists(PathBuf),
     #[error("invalid path component `{0}`")]
     InvalidPath(PathBuf),
+    #[error("{0}")]
+    IOError(#[from] io::Error),
 }
 
 #[derive(Debug, Default)]
@@ -119,17 +138,25 @@ impl DirTree {
         }
     }
 
-    pub fn write_to<W: Write>(&self, w: &mut W, name: &str) -> io::Result<()> {
-        writeln!(w, "{}", name)?;
+    fn write_to<W: Write>(&self, w: &mut W, root: Option<&Path>) -> io::Result<()> {
+        if let Some(ref root) = root {
+            writeln!(w, "{}", root.display())?;
+        }
+
         let mut it = self.0.iter().peekable();
         while let Some((name, entry)) = it.next() {
-            entry.write_to(w, name, "", it.peek().is_none())?;
+            entry.write_to(w, name, "", root.is_none(), it.peek().is_none())?;
         }
         Ok(())
     }
 
-    pub fn print(&self, name: &str) {
-        let _ = self.write_to(&mut io::stdout().lock(), name);
+    pub fn print_with_root<P: AsRef<Path>>(&self, root: P) {
+        self.write_to(&mut io::stdout().lock(), Some(root.as_ref()))
+            .expect("print to stdout failed");
+    }
+
+    pub fn print(&self) {
+        self.write_to(&mut io::stdout().lock(), None).expect("print to stdout failed");
     }
 }
 
@@ -155,7 +182,7 @@ root
 ";
         let dt = crate::make_tree().unwrap();
         let mut v = Vec::<u8>::new();
-        dt.write_to(&mut v, "root").unwrap();
+        dt.write_to(&mut v, Some(std::path::Path::new("root"))).unwrap();
         let s = String::from_utf8(v).unwrap();
         assert_eq!(s, expected);
     }

@@ -8,4 +8,6 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.38"
+structopt = "0.3.21"
 thiserror = "1.0.24"
+walkdir = "2.3.1"
