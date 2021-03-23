@@ -2,6 +2,11 @@ use std::collections::btree_map::{BTreeMap, Entry as BTreeEntry};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 
+use lscolors::{Indicator, LsColors};
+use termcolor::WriteColor;
+
+use crate::ToColorSpec;
+
 /// Path::new("foo").parent() == Some("") which is weird and not really what I want.
 /// This does the same thing but also returns None if the parent is empty
 fn dirname(path: &Path) -> Option<&Path> {
@@ -29,17 +34,51 @@ impl Entry {
         Self::Directory(Default::default())
     }
 
-    fn write_to<W: Write>(
+    fn write_styled_name<W>(&self, w: &mut W, name: &Path, color: &LsColors) -> io::Result<()>
+    where
+        W: Write + WriteColor,
+    {
+        // TODO: fork lscolors and add a way to color a filename based on extension
+        let indicator = match self {
+            Entry::File => Indicator::RegularFile,
+            Entry::Symlink(_) => Indicator::SymbolicLink,
+            Entry::Directory(_) => Indicator::Directory,
+        };
+
+        match color.style_for_indicator(indicator).map(|s| s.to_color_spec()) {
+            Some(color_spec) => {
+                w.set_color(&color_spec)?;
+                write!(w, "{}", name.display())?;
+                w.reset()?;
+            }
+            None => write!(w, "{}", name.display())?,
+        }
+
+        // optionally print symlink target
+        if let Entry::Symlink(target) = self {
+            // cheat slightly by recursively calling this function
+            write!(w, " -> ")?;
+            Entry::write_styled_name(&Entry::File, w, &target, color)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_to<W>(
         &self,
         w: &mut W,
         name: &Path,
         prefix: &str,
         root_entry: bool,
         last_in_dir: bool,
-    ) -> io::Result<()> {
+        color: &LsColors,
+    ) -> io::Result<()>
+    where
+        W: Write + WriteColor,
+    {
         write!(
             w,
-            "{prefix}{leader}{name}",
+            "{prefix}{leader}",
             prefix = prefix,
             leader = if root_entry {
                 ""
@@ -48,14 +87,9 @@ impl Entry {
             } else {
                 "├── "
             },
-            name = name.display(),
         )?;
-
-        // optionally print symlink target, then complete the line
-        match self {
-            Entry::Symlink(target) => writeln!(w, " -> {}", target.display())?,
-            _ => writeln!(w)?,
-        }
+        self.write_styled_name(w, name, color)?;
+        writeln!(w)?;
 
         if let Entry::Directory(dir) = self {
             let new_prefix = format!(
@@ -71,7 +105,7 @@ impl Entry {
             );
             let mut it = dir.0.iter().peekable();
             while let Some((name, entry)) = it.next() {
-                entry.write_to(w, name, &new_prefix, false, it.peek().is_none())?;
+                entry.write_to(w, name, &new_prefix, false, it.peek().is_none(), color)?;
             }
         }
         Ok(())
@@ -138,30 +172,44 @@ impl DirTree {
         }
     }
 
-    fn write_to<W: Write>(&self, w: &mut W, root: Option<&Path>) -> io::Result<()> {
+    fn write_to<W>(&self, w: &mut W, root: Option<&Path>, color: &LsColors) -> io::Result<()>
+    where
+        W: Write + WriteColor,
+    {
         if let Some(ref root) = root {
             writeln!(w, "{}", root.display())?;
         }
 
         let mut it = self.0.iter().peekable();
         while let Some((name, entry)) = it.next() {
-            entry.write_to(w, name, "", root.is_none(), it.peek().is_none())?;
+            entry.write_to(w, name, "", root.is_none(), it.peek().is_none(), color)?;
         }
         Ok(())
     }
 
-    pub fn print_with_root<P: AsRef<Path>>(&self, root: P) {
-        self.write_to(&mut io::stdout().lock(), Some(root.as_ref()))
-            .expect("print to stdout failed");
+    pub fn print_with_root<P, W>(&self, w: &mut W, root: P, color: &LsColors) -> io::Result<()>
+    where
+        P: AsRef<Path>,
+        W: Write + WriteColor,
+    {
+        self.write_to(w, Some(root.as_ref()), color)
     }
 
-    pub fn print(&self) {
-        self.write_to(&mut io::stdout().lock(), None).expect("print to stdout failed");
+    pub fn print<W>(&self, w: &mut W, color: &LsColors) -> io::Result<()>
+    where
+        W: Write + WriteColor,
+    {
+        self.write_to(w, None, color)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use lscolors::LsColors;
+    use termcolor::NoColor;
+
+    use crate::make_tree;
+
     #[test]
     fn test_output() {
         let expected = "\
@@ -180,10 +228,12 @@ root
     │   └── ghjk
     └── b
 ";
-        let dt = crate::make_tree().unwrap();
-        let mut v = Vec::<u8>::new();
-        dt.write_to(&mut v, Some(std::path::Path::new("root"))).unwrap();
-        let s = String::from_utf8(v).unwrap();
+        let dt = make_tree().unwrap();
+        let color = LsColors::empty();
+        let mut v = NoColor::new(Vec::<u8>::new());
+
+        dt.write_to(&mut v, Some(std::path::Path::new("root")), &color).unwrap();
+        let s = String::from_utf8(v.into_inner()).unwrap();
         assert_eq!(s, expected);
     }
 }
