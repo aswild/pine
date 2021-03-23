@@ -6,8 +6,9 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.38"
+atty = "0.2.14"
+clap = "2.33.3"
 lscolors = { version = "0.7.1", default-features = false }
-structopt = "0.3.21"
 termcolor = "1.1.2"
 thiserror = "1.0.24"
 walkdir = "2.3.1"

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
+use clap::{crate_version, App, AppSettings, Arg};
 use lscolors::LsColors;
-use structopt::StructOpt;
 use termcolor::{ColorChoice, ColorSpec, StandardStream};
 
 mod builders;
@@ -69,17 +69,66 @@ fn make_tree() -> Result<DirTree, DirTreeError> {
     Ok(dt)
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug)]
 struct Args {
-    /// Directory to scan
+    color_choice: ColorChoice,
     dir: Option<PathBuf>,
 }
 
+fn parse_args() -> Args {
+    let m = App::new("pine")
+        .version(crate_version!())
+        .about("Display things as a tree.")
+        .setting(AppSettings::DeriveDisplayOrder)
+        .setting(AppSettings::UnifiedHelpMessage)
+        .arg(
+            Arg::with_name("color")
+                .long("color")
+                .takes_value(true)
+                .possible_values(&["auto", "always", "never"])
+                .default_value("auto")
+                .help("enable terminal colors"),
+        )
+        .arg(
+            Arg::with_name("always_color")
+                .short("C")
+                .conflicts_with("color")
+                .help("alias for --color=always"),
+        )
+        .arg(
+            Arg::with_name("dir")
+                .required(false)
+                .help("Directory to list, or empty to use built-in test data"),
+        )
+        .get_matches();
+
+    let color_choice = if m.is_present("always_color") {
+        ColorChoice::Always
+    } else {
+        match m.value_of("color") {
+            Some("always") => ColorChoice::Always,
+            Some("never") => ColorChoice::Never,
+            Some("auto") => {
+                if atty::is(atty::Stream::Stdout) {
+                    ColorChoice::Auto
+                } else {
+                    ColorChoice::Never
+                }
+            }
+            _ => unreachable!(),
+        }
+    };
+
+    let dir = m.value_of_os("dir").map(PathBuf::from);
+
+    Args { color_choice, dir }
+}
+
 fn run() -> Result<()> {
-    let args = Args::from_args();
-    // TODO: command line args and tty check
+    let args = parse_args();
     let color = LsColors::from_env().unwrap_or_default();
-    let stdout = StandardStream::stdout(ColorChoice::Always);
+    let stdout = StandardStream::stdout(args.color_choice);
+
     let mut stdout_lock = stdout.lock();
 
     if let Some(ref dir) = args.dir {
