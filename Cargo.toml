@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Allen Wild <allenwild93@gmail.com>"]
 edition = "2018"
 
+[workspace]
+members = ["libarchive"]
+
 [dependencies]
 anyhow = "1.0.38"
 atty = "0.2.14"
