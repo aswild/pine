@@ -34,20 +34,30 @@ impl Entry {
         Self::Directory(Default::default())
     }
 
+    /// Write a colored version of `name` to the specified Writer. Files are colored based on file
+    /// extensions, directories as such, and symlinks also write the target, formatted as a file
+    /// name based on extension.
     fn write_styled_name<W>(&self, w: &mut W, name: &Path, color: &LsColors) -> io::Result<()>
     where
         W: Write + WriteColor,
     {
-        // TODO: fork lscolors and add a way to color a filename based on extension
-        let indicator = match self {
-            Entry::File => Indicator::RegularFile,
-            Entry::Symlink(_) => Indicator::SymbolicLink,
-            Entry::Directory(_) => Indicator::Directory,
+        let style = if w.supports_color() {
+            match self {
+                // we can't create a std::fs::Metadata, but passing None makes lscolors assume
+                // a regular file to be styled by file extension
+                Entry::File => color.style_for_path_with_metadata(name, None),
+                // for symlinks and directories, get a style based on that indicator type
+                Entry::Symlink(_) => color.style_for_indicator(Indicator::SymbolicLink),
+                Entry::Directory(_) => color.style_for_indicator(Indicator::Directory),
+            }
+        } else {
+            // bypass lscolors processing if the output stream has color disabled
+            None
         };
 
-        match color.style_for_indicator(indicator).map(|s| s.to_color_spec()) {
-            Some(color_spec) => {
-                w.set_color(&color_spec)?;
+        match style.map(ToColorSpec::to_color_spec) {
+            Some(cs) => {
+                w.set_color(&cs)?;
                 write!(w, "{}", name.display())?;
                 w.reset()?;
             }
@@ -58,7 +68,7 @@ impl Entry {
         if let Entry::Symlink(target) = self {
             // cheat slightly by recursively calling this function
             write!(w, " -> ")?;
-            Entry::write_styled_name(&Entry::File, w, &target, color)?;
+            Entry::File.write_styled_name(w, &target, color)?;
         }
 
         Ok(())
