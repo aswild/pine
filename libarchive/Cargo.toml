@@ -5,6 +5,7 @@ authors = ["Allen Wild <allenwild93@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+libc = "0.2.91"
 
 [build-dependencies]
 pkg-config = "0.3.19"
