@@ -8,12 +8,6 @@ header="$(mktemp --suffix=.h)"
 trap "rm -f $header" EXIT
 echo -e '#include <archive.h>\n#include <archive_entry.h>' >"$header"
 
-struct_stat_def='#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct stat {
-    _unused: [u8; 0],
-}'
-
 bindgen_options=(
     # assume size_t is usize and #defines are i32
     --size_t-is-usize --default-macro-constant-type signed
@@ -25,10 +19,11 @@ bindgen_options=(
     --whitelist-var '(?i)archive_.*'
     # include primitive C types
     --whitelist-type '_*(dev_t|mode_t|time_t|wchar_t)'
+    # don't leak types for members of struct stat, it's only used as a pointer in the libarchive API
+    --whitelist-type 'stat'
+    --opaque-type 'stat'
     # disable functions that use FILE (to avoid codegen for the internals of FILE)
     --blacklist-function '.*_FILE$'
-    # create a ZST for struct stat, since it's only used as a pointer
-    --raw-line "$struct_stat_def"
 )
 
 bindgen "${bindgen_options[@]}" -o "$D/src/ffi.rs" "$header"
