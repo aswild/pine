@@ -1,11 +1,11 @@
 use std::borrow::Borrow;
 use std::ffi::{CStr, OsStr};
-use std::io::{self, Read};
+use std::fmt;
+use std::io::Read;
 use std::os::raw::c_void;
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::ptr;
 
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
@@ -42,6 +42,18 @@ impl Drop for ArchiveEntry {
     }
 }
 
+impl Clone for ArchiveEntry {
+    fn clone(&self) -> Self {
+        Self { ptr: expect_nonnull_unsafe!(ffi::archive_entry_clone(self.ptr)) }
+    }
+}
+
+impl Default for ArchiveEntry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ArchiveEntry {
     pub fn new() -> Self {
         Self { ptr: expect_nonnull_unsafe!(ffi::archive_entry_new()) }
@@ -55,6 +67,48 @@ impl ArchiveEntry {
             let cs = unsafe { CStr::from_ptr(p) };
             Some(PathBuf::from(OsStr::from_bytes(cs.to_bytes())))
         }
+    }
+
+    fn as_ptr(&mut self) -> *mut ffi::archive_entry {
+        self.ptr
+    }
+}
+
+#[derive(Debug)]
+pub struct ArchiveError {
+    errno: i32,
+    msg: String,
+    prefix: Option<String>,
+}
+
+impl fmt::Display for ArchiveError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(ref prefix) = self.prefix {
+            write!(f, "{}: {} ({})", prefix, self.msg, self.errno)
+        } else {
+            write!(f, "{} ({})", self.msg, self.errno)
+        }
+    }
+}
+
+impl ArchiveError {
+    /// Construct an ArchiveError by calling archive_errno() and archive_error_string() on the
+    /// given archive.
+    ///
+    /// SAFETY: archive must be a valid pointer to a struct archive.
+    unsafe fn from_archive(archive: *mut ffi::archive) -> Self {
+        let msg = match ffi::archive_error_string(archive) {
+            p if p.is_null() => "[unknown error message]".into(),
+            p => CStr::from_ptr(p).to_string_lossy().into_owned(),
+        };
+
+        Self { errno: ffi::archive_errno(archive), msg, prefix: None }
+    }
+
+    unsafe fn with_prefix(archive: *mut ffi::archive, prefix: impl ToString) -> Self {
+        let mut err = ArchiveError::from_archive(archive);
+        err.prefix = Some(prefix.to_string());
+        err
     }
 }
 
@@ -72,8 +126,16 @@ impl<R: Read> ReadInner<R> {
 }
 
 pub struct ArchiveReader<R: Read> {
+    /// Raw FFI object
     ptr: *mut ffi::archive,
+    /// Rust reader and buffer, used by the read callback
+    // This field is passed as a raw pointer to libarchive, and never used directly from Rust code,
+    // thus the compiler thinks it's never used.
+    #[allow(dead_code)]
     read_inner: Pin<Box<ReadInner<R>>>,
+    /// Cached struct archive_entry for use during reading. A reference to this is returned by
+    /// read_next_header
+    entry: ArchiveEntry,
 }
 
 impl<R: Read> ArchiveReader<R> {
@@ -86,10 +148,10 @@ impl<R: Read> ArchiveReader<R> {
         // data is a void* that must point to a ReadInner<R>, it's set up when we call
         // archive_read_open().
         //
-        // The Box<ReadInner<R>> is pinned and owned by the Pin<Box<ReadInner<R>>> inside the
-        // some ArchiveReader<R> that registered this callback.
+        // The ReadInner<R> is pinned and owned by the Pin<Box<ReadInner<R>>> inside the same
+        // ArchiveReader<R> that registered this callback.
         //
-        // We must not move out of the box or do anything else that might drop its contents.
+        // We must not move out of the ReadInner or do anything else that might drop its contents.
         // Lifetime guarantees are also out the window here, but we have to return a data pointer
         // to libarchive via out_buf. This means that the ReadInner's buf must stay alive and
         // pinned for as long as the struct archive* is live.
@@ -123,12 +185,21 @@ impl<R: Read> ArchiveReader<R> {
         }
     }
 
-    pub fn new(reader: R) -> Self {
-        let archive = expect_nonnull_unsafe!(ffi::archive_read_new());
-        let mut read_inner: Pin<Box<ReadInner<R>>> =
-            ReadInner::new_pinned(reader, DEFAULT_BUF_SIZE);
+    /// Create a new ArchiveReader wrapping the given reader.
+    ///
+    /// May panic if archive_read_new() fails.
+    pub fn new(reader: R) -> Result<Self, ArchiveError> {
+        let mut read_inner = ReadInner::new_pinned(reader, DEFAULT_BUF_SIZE);
 
-        let ret = unsafe {
+        let ptr = unsafe {
+            let archive = expect_nonnull!(ffi::archive_read_new());
+            if ffi::archive_read_support_format_all(archive) != ffi::ARCHIVE_OK {
+                return Err(ArchiveError::with_prefix(archive, "failed to enable archive formats"));
+            }
+            if ffi::archive_read_support_filter_all(archive) != ffi::ARCHIVE_OK {
+                return Err(ArchiveError::with_prefix(archive, "failed to enable archive filters"));
+            }
+
             // as_mut converts Pin<Box<ReadInner<R>>> to Pin<&mut ReadInner<R>>,
             // get_unchecked_mut converts Pin<&mut ReadInner<R>> to &mut ReadInner<R>,
             // then cast mut reference into a raw pointer, then cast to void*.
@@ -141,16 +212,43 @@ impl<R: Read> ArchiveReader<R> {
             // args are struct archive*. void* user_data, open callback, read callback, close
             // callback. We don't give libarchive any open/close callbacks because all of that is
             // handled in Rust.
-            ffi::archive_read_open(archive, data_ptr, None, Some(Self::read_callback), None)
+            assert_eq!(
+                ffi::archive_read_open(archive, data_ptr, None, Some(Self::read_callback), None),
+                ffi::ARCHIVE_OK,
+                "archive_read_open failed: {}",
+                ArchiveError::from_archive(archive),
+            );
+
+            archive
         };
-        assert_eq!(ret, ffi::ARCHIVE_OK);
-        Self { ptr: archive, read_inner }
+        Ok(Self { ptr, read_inner, entry: ArchiveEntry::new() })
+    }
+
+    /// Read the next entry in the archive, consuming input from the inner reader. Returns a shared
+    /// reference to an ArchiveEntry owned by this ArchiveReader, or `Ok(None)` on EOF.
+    pub fn read_next_header(&mut self) -> Result<Option<&ArchiveEntry>, ArchiveError> {
+        let ret = unsafe { ffi::archive_read_next_header2(self.ptr, self.entry.as_ptr()) };
+        match ret {
+            ffi::ARCHIVE_OK => Ok(Some(&self.entry)),
+            ffi::ARCHIVE_EOF => Ok(None),
+            ffi::ARCHIVE_RETRY => todo!("handling ARCHIVE_RETRY is not yet implemented"),
+            ffi::ARCHIVE_WARN | ffi::ARCHIVE_FATAL => Err(self.last_error()),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn last_error(&mut self) -> ArchiveError {
+        // SAFETY: self.ptr is always valid
+        unsafe { ArchiveError::from_archive(self.ptr) }
     }
 }
 
 impl<R: Read> Drop for ArchiveReader<R> {
     fn drop(&mut self) {
-        todo!()
+        let ret = unsafe { ffi::archive_read_free(self.ptr) };
+        debug_assert_eq!(ret, ffi::ARCHIVE_OK, "archive_read_free failed!");
+        // drop for the ReadInner will run next, closing the inner reader and dropping the buffer
+        // now that we're sure that libarchive is done with it.
     }
 }
 
