@@ -6,9 +6,9 @@ pub struct stat {
     _unused: [u8; 0],
 }
 
-pub const ARCHIVE_VERSION_NUMBER: i32 = 3004000;
-pub const ARCHIVE_VERSION_ONLY_STRING: &'static [u8; 6usize] = b"3.4.0\0";
-pub const ARCHIVE_VERSION_STRING: &'static [u8; 17usize] = b"libarchive 3.4.0\0";
+pub const ARCHIVE_VERSION_NUMBER: i32 = 3005001;
+pub const ARCHIVE_VERSION_ONLY_STRING: &'static [u8; 6usize] = b"3.5.1\0";
+pub const ARCHIVE_VERSION_STRING: &'static [u8; 17usize] = b"libarchive 3.5.1\0";
 pub const ARCHIVE_EOF: i32 = 1;
 pub const ARCHIVE_OK: i32 = 0;
 pub const ARCHIVE_RETRY: i32 = -10;
@@ -96,6 +96,7 @@ pub const ARCHIVE_EXTRACT_NO_HFS_COMPRESSION: i32 = 16384;
 pub const ARCHIVE_EXTRACT_HFS_COMPRESSION_FORCED: i32 = 32768;
 pub const ARCHIVE_EXTRACT_SECURE_NOABSOLUTEPATHS: i32 = 65536;
 pub const ARCHIVE_EXTRACT_CLEAR_NOCHANGE_FFLAGS: i32 = 131072;
+pub const ARCHIVE_EXTRACT_SAFE_WRITES: i32 = 262144;
 pub const ARCHIVE_READDISK_RESTORE_ATIME: i32 = 1;
 pub const ARCHIVE_READDISK_HONOR_NODUMP: i32 = 2;
 pub const ARCHIVE_READDISK_MAC_COPYFILE: i32 = 4;
@@ -108,6 +109,12 @@ pub const ARCHIVE_MATCH_CTIME: i32 = 512;
 pub const ARCHIVE_MATCH_NEWER: i32 = 1;
 pub const ARCHIVE_MATCH_OLDER: i32 = 2;
 pub const ARCHIVE_MATCH_EQUAL: i32 = 16;
+pub const ARCHIVE_ENTRY_DIGEST_MD5: i32 = 1;
+pub const ARCHIVE_ENTRY_DIGEST_RMD160: i32 = 2;
+pub const ARCHIVE_ENTRY_DIGEST_SHA1: i32 = 3;
+pub const ARCHIVE_ENTRY_DIGEST_SHA256: i32 = 4;
+pub const ARCHIVE_ENTRY_DIGEST_SHA384: i32 = 5;
+pub const ARCHIVE_ENTRY_DIGEST_SHA512: i32 = 6;
 pub const ARCHIVE_ENTRY_ACL_EXECUTE: i32 = 1;
 pub const ARCHIVE_ENTRY_ACL_WRITE: i32 = 2;
 pub const ARCHIVE_ENTRY_ACL_READ: i32 = 4;
@@ -242,6 +249,12 @@ pub type archive_close_callback = ::std::option::Option<
         _client_data: *mut ::std::os::raw::c_void,
     ) -> ::std::os::raw::c_int,
 >;
+pub type archive_free_callback = ::std::option::Option<
+    unsafe extern "C" fn(
+        arg1: *mut archive,
+        _client_data: *mut ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int,
+>;
 pub type archive_switch_callback = ::std::option::Option<
     unsafe extern "C" fn(
         arg1: *mut archive,
@@ -304,6 +317,12 @@ extern "C" {
 }
 extern "C" {
     pub fn archive_read_support_filter_all(arg1: *mut archive) -> ::std::os::raw::c_int;
+}
+extern "C" {
+    pub fn archive_read_support_filter_by_code(
+        arg1: *mut archive,
+        arg2: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
 }
 extern "C" {
     pub fn archive_read_support_filter_bzip2(arg1: *mut archive) -> ::std::os::raw::c_int;
@@ -934,6 +953,16 @@ extern "C" {
         arg3: archive_open_callback,
         arg4: archive_write_callback,
         arg5: archive_close_callback,
+    ) -> ::std::os::raw::c_int;
+}
+extern "C" {
+    pub fn archive_write_open2(
+        arg1: *mut archive,
+        arg2: *mut ::std::os::raw::c_void,
+        arg3: archive_open_callback,
+        arg4: archive_write_callback,
+        arg5: archive_close_callback,
+        arg6: archive_free_callback,
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
@@ -1954,6 +1983,12 @@ extern "C" {
     );
 }
 extern "C" {
+    pub fn archive_entry_digest(
+        arg1: *mut archive_entry,
+        arg2: ::std::os::raw::c_int,
+    ) -> *const ::std::os::raw::c_uchar;
+}
+extern "C" {
     pub fn archive_entry_acl_clear(arg1: *mut archive_entry);
 }
 extern "C" {
@@ -1991,17 +2026,6 @@ extern "C" {
         arg5: *mut ::std::os::raw::c_int,
         arg6: *mut ::std::os::raw::c_int,
         arg7: *mut *const ::std::os::raw::c_char,
-    ) -> ::std::os::raw::c_int;
-}
-extern "C" {
-    pub fn archive_entry_acl_next_w(
-        arg1: *mut archive_entry,
-        arg2: ::std::os::raw::c_int,
-        arg3: *mut ::std::os::raw::c_int,
-        arg4: *mut ::std::os::raw::c_int,
-        arg5: *mut ::std::os::raw::c_int,
-        arg6: *mut ::std::os::raw::c_int,
-        arg7: *mut *const wchar_t,
     ) -> ::std::os::raw::c_int;
 }
 extern "C" {
