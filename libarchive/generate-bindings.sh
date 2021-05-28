@@ -4,6 +4,12 @@ set -e
 
 D="$(readlink -f "$(dirname "$0")")"
 
+if pkg-config --exists libarchive; then
+    cflags=( $(pkg-config --cflags libarchive) )
+else
+    cflags=()
+fi
+
 header="$(mktemp --suffix=.h)"
 trap "rm -f $header" EXIT
 echo -e '#include <archive.h>\n#include <archive_entry.h>' >"$header"
@@ -26,4 +32,4 @@ bindgen_options=(
     --blacklist-function '.*_FILE$'
 )
 
-bindgen "${bindgen_options[@]}" -o "$D/src/ffi.rs" "$header"
+bindgen "${bindgen_options[@]}" -o "$D/src/ffi.rs" "$header" -- "${cflags[@]}"
