@@ -5,16 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use lscolors::{Indicator, LsColors};
 use termcolor::WriteColor;
 
-use crate::ToColorSpec;
-
-/// Path::new("foo").parent() == Some("") which is weird and not really what I want.
-/// This does the same thing but also returns None if the parent is empty
-fn dirname(path: &Path) -> Option<&Path> {
-    match path.parent() {
-        Some(p) if !p.as_os_str().is_empty() => Some(p),
-        _ => None,
-    }
-}
+use crate::util::*;
 
 #[derive(Debug)]
 pub enum Entry {
@@ -218,7 +209,20 @@ mod tests {
     use lscolors::LsColors;
     use termcolor::NoColor;
 
-    use crate::make_tree;
+    use super::{DirTree, DirTreeError, Entry};
+
+    fn make_tree() -> Result<DirTree, DirTreeError> {
+        let mut dt = DirTree::default();
+        dt.insert("./foo", Entry::empty_dir())?;
+        dt.insert("foo/bar", Entry::File)?;
+        dt.insert("foo/baz", Entry::Symlink("symlink target".into()))?;
+        dt.insert("foo/subdir", Entry::empty_dir())?;
+        dt.insert("foo/subdir2/subdir3/subdir_file", Entry::File)?;
+        dt.insert("another_dir/some_file", Entry::File)?;
+        dt.insert("zed/asdf/ghjk", Entry::File)?;
+        dt.insert("zed/b", Entry::File)?;
+        Ok(dt)
+    }
 
     #[test]
     fn test_output() {
