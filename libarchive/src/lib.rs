@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::ffi::{CStr, OsStr};
 use std::fmt;
 use std::io::Read;
-use std::os::raw::c_void;
+use std::os::raw::{c_char, c_void};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -10,7 +10,28 @@ use std::pin::Pin;
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
 #[allow(clippy::redundant_static_lifetimes)]
-pub mod ffi;
+// HACK! These constants are #defined like
+//    #define AE_IFMT ((__LA_MODE_T)0170000)
+// and bindgen can't handle that, it just skips them.  We can do something slightly less janky
+// later on so that the values don't have to be hard-coded, but for now just hack them in here.
+// The #[path] attributes are so that we can have this inner mod named ffi and also a file called
+// ffi.rs, since eventually this will go away (TODO).
+// See https://github.com/rust-lang/rust-bindgen/issues/753
+#[path = ""]
+pub mod ffi {
+    #[path = "ffi.rs"]
+    mod real_ffi;
+    pub use real_ffi::*;
+
+    pub const AE_IFMT: u32 = 0o170000;
+    pub const AE_IFREG: u32 = 0o100000;
+    pub const AE_IFLNK: u32 = 0o120000;
+    pub const AE_IFSOCK: u32 = 0o140000;
+    pub const AE_IFCHR: u32 = 0o020000;
+    pub const AE_IFBLK: u32 = 0o060000;
+    pub const AE_IFDIR: u32 = 0o040000;
+    pub const AE_IFIFO: u32 = 0o010000;
+}
 
 macro_rules! expect_nonnull {
     ($e:expr) => {
@@ -28,6 +49,17 @@ macro_rules! expect_nonnull_unsafe {
 }
 
 const DEFAULT_BUF_SIZE: usize = 8192;
+
+/// Convert a borrowed raw C string into an owned PathBuf, or None if the pointer is NULL.
+
+/// SAFETY: `ptr` must point to a null-terminated string, or be a NULL pointer.
+unsafe fn raw_cstring_to_pathbuf(ptr: *const c_char) -> Option<PathBuf> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(PathBuf::from(OsStr::from_bytes(CStr::from_ptr(ptr).to_bytes())))
+    }
+}
 
 #[derive(Debug)]
 pub struct ArchiveEntry {
@@ -59,14 +91,28 @@ impl ArchiveEntry {
         Self { ptr: expect_nonnull_unsafe!(ffi::archive_entry_new()) }
     }
 
-    pub fn pathname(&self) -> Option<PathBuf> {
-        let p = unsafe { ffi::archive_entry_pathname(self.ptr) };
-        if p.is_null() {
-            None
-        } else {
-            let cs = unsafe { CStr::from_ptr(p) };
-            Some(PathBuf::from(OsStr::from_bytes(cs.to_bytes())))
-        }
+    pub fn path(&self) -> Option<PathBuf> {
+        unsafe { raw_cstring_to_pathbuf(ffi::archive_entry_pathname(self.ptr)) }
+    }
+
+    pub fn symlink_path(&self) -> Option<PathBuf> {
+        unsafe { raw_cstring_to_pathbuf(ffi::archive_entry_symlink(self.ptr)) }
+    }
+
+    pub fn filetype(&self) -> ffi::mode_t {
+        unsafe { ffi::archive_entry_filetype(self.ptr) }
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.filetype() == ffi::AE_IFREG
+    }
+
+    pub fn is_dir(&self) -> bool {
+        self.filetype() == ffi::AE_IFDIR
+    }
+
+    pub fn is_symlink(&self) -> bool {
+        self.filetype() == ffi::AE_IFLNK
     }
 
     fn as_ptr(&mut self) -> *mut ffi::archive_entry {
@@ -91,6 +137,8 @@ impl fmt::Display for ArchiveError {
     }
 }
 
+impl std::error::Error for ArchiveError {}
+
 impl ArchiveError {
     /// Construct an ArchiveError by calling archive_errno() and archive_error_string() on the
     /// given archive.
@@ -109,6 +157,10 @@ impl ArchiveError {
         let mut err = ArchiveError::from_archive(archive);
         err.prefix = Some(prefix.to_string());
         err
+    }
+
+    pub fn new_custom(msg: String) -> Self {
+        Self { errno: 0, msg, prefix: None }
     }
 }
 

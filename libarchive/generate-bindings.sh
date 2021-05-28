@@ -23,6 +23,7 @@ bindgen_options=(
     --whitelist-function 'archive_.*'
     --whitelist-type 'archive|la_.*'
     --whitelist-var '(?i)archive_.*'
+    --whitelist-var 'AE_.*'
     # include primitive C types
     --whitelist-type '_*(dev_t|mode_t|time_t|wchar_t)'
     # don't leak types for members of struct stat, it's only used as a pointer in the libarchive API
