@@ -2,6 +2,7 @@ use std::collections::btree_map::{BTreeMap, Entry as BTreeEntry};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 
+use libarchive::ArchiveError;
 use lscolors::{Indicator, LsColors};
 use termcolor::WriteColor;
 
@@ -124,6 +125,8 @@ pub enum DirTreeError {
     InvalidPath(PathBuf),
     #[error("{0}")]
     IOError(#[from] io::Error),
+    #[error("libarchive: {0}")]
+    ArchiveError(#[from] ArchiveError),
 }
 
 #[derive(Debug, Default)]

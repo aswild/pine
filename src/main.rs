@@ -1,15 +1,14 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{crate_version, App, AppSettings, Arg};
 use lscolors::LsColors;
-use termcolor::{ColorChoice, ColorSpec, StandardStream};
+use termcolor::{ColorChoice, StandardStream};
 
-mod builders;
 mod dir_tree;
+mod input;
 mod util;
-use builders::{DirTreeBuild, Filesystem};
-use dir_tree::{DirTree, DirTreeError, Entry};
+use input::{InputKind, PineTree};
 
 #[derive(Debug)]
 struct Args {
@@ -71,11 +70,16 @@ fn run() -> Result<()> {
     let args = parse_args();
     let color = LsColors::from_env().unwrap_or_default();
     let stdout = StandardStream::stdout(args.color_choice);
-
     let mut stdout_lock = stdout.lock();
 
-    let dt = Filesystem::new(args.input).read_dir_tree()?;
-    dt.print(&mut stdout_lock, &color)?;
+    let meta = std::fs::metadata(&args.input).context("failed to stat input")?;
+    let tree = if meta.is_dir() {
+        PineTree::new(InputKind::Filesystem(args.input))
+    } else {
+        PineTree::new(InputKind::Archive(args.input))
+    }?;
+
+    tree.print(&mut stdout_lock, &color)?;
 
     Ok(())
 }

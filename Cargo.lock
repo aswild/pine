@@ -83,6 +83,7 @@ dependencies = [
  "anyhow",
  "atty",
  "clap",
+ "libarchive",
  "lscolors",
  "termcolor",
  "thiserror",
