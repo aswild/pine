@@ -4,6 +4,8 @@
 //! reading archives (in any format/filter combination the libarchive supports) and iterating
 //! through their header/metadata entries.
 
+#![warn(unsafe_op_in_unsafe_fn)]
+
 use std::borrow::Borrow;
 use std::ffi::{CStr, OsStr};
 use std::fmt;
@@ -49,13 +51,6 @@ macro_rules! expect_nonnull {
     };
 }
 
-/// Evaluate an expression that returns a raw pointer in an unsafe block, and panic if it's null.
-macro_rules! expect_nonnull_unsafe {
-    ($e:expr) => {
-        unsafe { expect_nonnull!($e) }
-    };
-}
-
 /// IO read buffer size (heap allocated)
 const DEFAULT_BUF_SIZE: usize = 8192;
 
@@ -66,7 +61,8 @@ unsafe fn raw_cstring_to_pathbuf(ptr: *const c_char) -> Option<PathBuf> {
     if ptr.is_null() {
         None
     } else {
-        Some(PathBuf::from(OsStr::from_bytes(CStr::from_ptr(ptr).to_bytes())))
+        let cstr = unsafe { CStr::from_ptr(ptr) };
+        Some(PathBuf::from(OsStr::from_bytes(cstr.to_bytes())))
     }
 }
 
@@ -87,7 +83,7 @@ impl Drop for ArchiveEntry {
 
 impl Clone for ArchiveEntry {
     fn clone(&self) -> Self {
-        Self { ptr: expect_nonnull_unsafe!(ffi::archive_entry_clone(self.ptr)) }
+        Self { ptr: unsafe { expect_nonnull!(ffi::archive_entry_clone(self.ptr)) } }
     }
 }
 
@@ -99,7 +95,7 @@ impl Default for ArchiveEntry {
 
 impl ArchiveEntry {
     pub fn new() -> Self {
-        Self { ptr: expect_nonnull_unsafe!(ffi::archive_entry_new()) }
+        Self { ptr: unsafe { expect_nonnull!(ffi::archive_entry_new()) } }
     }
 
     pub fn path(&self) -> Option<PathBuf> {
@@ -155,6 +151,7 @@ impl ArchiveError {
     /// given archive.
     ///
     /// SAFETY: archive must be a valid pointer to a struct archive.
+    #[allow(unsafe_op_in_unsafe_fn)]
     unsafe fn from_archive(archive: *mut ffi::archive) -> Self {
         let msg = match ffi::archive_error_string(archive) {
             p if p.is_null() => "[unknown error message]".into(),
@@ -166,7 +163,7 @@ impl ArchiveError {
 
     /// The same as `ArchiveError::from_archive` , but with a custom prefix message string
     unsafe fn with_prefix(archive: *mut ffi::archive, prefix: impl ToString) -> Self {
-        let mut err = ArchiveError::from_archive(archive);
+        let mut err = unsafe { ArchiveError::from_archive(archive) };
         err.prefix = Some(prefix.to_string());
         err
     }
@@ -208,6 +205,7 @@ pub struct ArchiveReader<R: Read> {
 }
 
 impl<R: Read> ArchiveReader<R> {
+    #[allow(unsafe_op_in_unsafe_fn)]
     unsafe extern "C" fn read_callback(
         archive: *mut ffi::archive,
         data: *mut c_void,
