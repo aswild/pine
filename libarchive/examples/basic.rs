@@ -11,7 +11,7 @@ fn main() {
 
     loop {
         match reader.read_next_header() {
-            Ok(Some(entry)) => println!("{}", entry.pathname().unwrap().display()),
+            Ok(Some(entry)) => println!("{}", entry.path().unwrap().display()),
             Ok(None) => break,
             Err(e) => {
                 println!("Error: {}", e);

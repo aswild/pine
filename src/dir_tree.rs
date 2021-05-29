@@ -123,7 +123,7 @@ pub enum DirTreeError {
     FileExists(PathBuf),
     #[error("invalid path component `{0}`")]
     InvalidPath(PathBuf),
-    #[error("{0}")]
+    #[error(transparent)]
     IOError(#[from] io::Error),
     #[error("libarchive: {0}")]
     ArchiveError(#[from] ArchiveError),

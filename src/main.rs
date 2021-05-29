@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -8,12 +9,12 @@ use termcolor::{ColorChoice, StandardStream};
 mod dir_tree;
 mod input;
 mod util;
-use input::{InputKind, PineTree};
+use input::PineTree;
 
 #[derive(Debug)]
 struct Args {
     color_choice: ColorChoice,
-    input: PathBuf,
+    inputs: Vec<PathBuf>,
 }
 
 fn parse_args() -> Args {
@@ -40,6 +41,7 @@ fn parse_args() -> Args {
         .arg(
             Arg::with_name("input")
                 .required(true)
+                .multiple(true)
                 .help("path to directory, archive file, or package to tree"),
         )
         .get_matches();
@@ -61,9 +63,9 @@ fn parse_args() -> Args {
         }
     };
 
-    let input = m.value_of_os("input").unwrap().into();
+    let inputs = m.values_of_os("input").unwrap().map(PathBuf::from).collect();
 
-    Args { color_choice, input }
+    Args { color_choice, inputs }
 }
 
 fn run() -> Result<()> {
@@ -72,21 +74,21 @@ fn run() -> Result<()> {
     let stdout = StandardStream::stdout(args.color_choice);
     let mut stdout_lock = stdout.lock();
 
-    let meta = std::fs::metadata(&args.input).context("failed to stat input")?;
-    let tree = if meta.is_dir() {
-        PineTree::new(InputKind::Filesystem(args.input))
-    } else {
-        PineTree::new(InputKind::Archive(args.input))
-    }?;
-
-    tree.print(&mut stdout_lock, &color)?;
+    for (i, path) in args.inputs.iter().enumerate() {
+        if i != 0 {
+            writeln!(&mut stdout_lock)?;
+        }
+        let tree = PineTree::from_path(path)
+            .with_context(|| format!("Failed to load tree for '{}'", path.display()))?;
+        tree.print(&mut stdout_lock, &color)?;
+    }
 
     Ok(())
 }
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("Error: {}", e);
+        eprintln!("Error: {:#}", e);
         std::process::exit(1);
     }
 }

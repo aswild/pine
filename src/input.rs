@@ -9,12 +9,16 @@ use walkdir::WalkDir;
 
 use crate::dir_tree::{DirTree, DirTreeError, Entry};
 
+/// The flavors of input that pine can load and generate a tree from
 #[derive(Debug)]
 pub enum InputKind {
+    /// Recursively walk a filesystem directory
     Filesystem(PathBuf),
+    /// Load a single archive file in a format supported by libarchive
     Archive(PathBuf),
 }
 
+/// The parsed directory tree, with a link back to the type of input
 #[derive(Debug)]
 pub struct PineTree {
     pub kind: InputKind,
@@ -30,6 +34,20 @@ impl PineTree {
         Ok(Self { kind, tree })
     }
 
+    /// Look at a path and determine which sort of input it should be. Assumes that all archives
+    /// are files.
+    pub fn from_path(path: impl AsRef<Path>) -> Result<Self, DirTreeError> {
+        let path = path.as_ref();
+        let meta = std::fs::metadata(path)?;
+        let kind = if meta.is_dir() {
+            InputKind::Filesystem(path.into())
+        } else {
+            InputKind::Archive(path.into())
+        };
+        Self::new(kind)
+    }
+
+    /// Print our DirTree to a stream. For archives, we have to specify the name of the root node.
     pub fn print<W>(&self, w: &mut W, color: &LsColors) -> io::Result<()>
     where
         W: Write + WriteColor,

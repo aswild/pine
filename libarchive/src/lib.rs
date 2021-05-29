@@ -1,3 +1,9 @@
+//! Basic safe Rust bindings for libarchive.
+//!
+//! This library is minimal, implementing only what's needed for pine. Currently it supports
+//! reading archives (in any format/filter combination the libarchive supports) and iterating
+//! through their header/metadata entries.
+
 use std::borrow::Borrow;
 use std::ffi::{CStr, OsStr};
 use std::fmt;
@@ -7,9 +13,6 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-#[allow(non_camel_case_types)]
-#[allow(non_snake_case)]
-#[allow(clippy::redundant_static_lifetimes)]
 // HACK! These constants are #defined like
 //    #define AE_IFMT ((__LA_MODE_T)0170000)
 // and bindgen can't handle that, it just skips them.  We can do something slightly less janky
@@ -18,6 +21,9 @@ use std::pin::Pin;
 // ffi.rs, since eventually this will go away (TODO).
 // See https://github.com/rust-lang/rust-bindgen/issues/753
 #[path = ""]
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+#[allow(clippy::redundant_static_lifetimes)]
 pub mod ffi {
     #[path = "ffi.rs"]
     mod real_ffi;
@@ -33,6 +39,7 @@ pub mod ffi {
     pub const AE_IFIFO: u32 = 0o010000;
 }
 
+/// Evaluate an expression that returns a raw pointer, and panic if it's null.
 macro_rules! expect_nonnull {
     ($e:expr) => {
         match $e {
@@ -42,16 +49,18 @@ macro_rules! expect_nonnull {
     };
 }
 
+/// Evaluate an expression that returns a raw pointer in an unsafe block, and panic if it's null.
 macro_rules! expect_nonnull_unsafe {
     ($e:expr) => {
         unsafe { expect_nonnull!($e) }
     };
 }
 
+/// IO read buffer size (heap allocated)
 const DEFAULT_BUF_SIZE: usize = 8192;
 
 /// Convert a borrowed raw C string into an owned PathBuf, or None if the pointer is NULL.
-
+///
 /// SAFETY: `ptr` must point to a null-terminated string, or be a NULL pointer.
 unsafe fn raw_cstring_to_pathbuf(ptr: *const c_char) -> Option<PathBuf> {
     if ptr.is_null() {
@@ -61,8 +70,10 @@ unsafe fn raw_cstring_to_pathbuf(ptr: *const c_char) -> Option<PathBuf> {
     }
 }
 
+/// Wrapper around a libarchive `struct archive_entry`
 #[derive(Debug)]
 pub struct ArchiveEntry {
+    // invariant: ptr must always point to a valid struct archive_entry
     ptr: *mut ffi::archive_entry,
 }
 
@@ -99,7 +110,7 @@ impl ArchiveEntry {
         unsafe { raw_cstring_to_pathbuf(ffi::archive_entry_symlink(self.ptr)) }
     }
 
-    pub fn filetype(&self) -> ffi::mode_t {
+    pub fn filetype(&self) -> u32 {
         unsafe { ffi::archive_entry_filetype(self.ptr) }
     }
 
@@ -153,17 +164,22 @@ impl ArchiveError {
         Self { errno: ffi::archive_errno(archive), msg, prefix: None }
     }
 
+    /// The same as `ArchiveError::from_archive` , but with a custom prefix message string
     unsafe fn with_prefix(archive: *mut ffi::archive, prefix: impl ToString) -> Self {
         let mut err = ArchiveError::from_archive(archive);
         err.prefix = Some(prefix.to_string());
         err
     }
 
+    /// Create an ArchiveError not actually derived from a struct archive, just a prefix message
+    /// string.
     pub fn new_custom(msg: String) -> Self {
         Self { errno: 0, msg, prefix: None }
     }
 }
 
+/// Rust reader and buffer used for libarchive callbacks. This struct is pinned inside
+/// ArchiveReader and a pointer to it is passed to the C callback function.
 #[derive(Debug)]
 struct ReadInner<R: Read> {
     reader: R,
@@ -178,7 +194,8 @@ impl<R: Read> ReadInner<R> {
 }
 
 pub struct ArchiveReader<R: Read> {
-    /// Raw FFI object
+    /// Raw FFI object. Invariant: this pointer is always non-null and points to a valid `struct
+    /// archive`
     ptr: *mut ffi::archive,
     /// Rust reader and buffer, used by the read callback
     // This field is passed as a raw pointer to libarchive, and never used directly from Rust code,
@@ -239,7 +256,8 @@ impl<R: Read> ArchiveReader<R> {
 
     /// Create a new ArchiveReader wrapping the given reader.
     ///
-    /// May panic if archive_read_new() fails.
+    /// May panic if `archive_read_new` or `archive_read_open` fail, which shouldn't happen in
+    /// normal operation and probably indicates OOM.
     pub fn new(reader: R) -> Result<Self, ArchiveError> {
         let mut read_inner = ReadInner::new_pinned(reader, DEFAULT_BUF_SIZE);
 
@@ -290,7 +308,6 @@ impl<R: Read> ArchiveReader<R> {
     }
 
     pub fn last_error(&mut self) -> ArchiveError {
-        // SAFETY: self.ptr is always valid
         unsafe { ArchiveError::from_archive(self.ptr) }
     }
 }

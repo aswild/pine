@@ -1,7 +1,5 @@
 use std::path::Path;
 
-use termcolor::ColorSpec;
-
 /// Path::new("foo").parent() == Some("") which is weird and not really what I want.
 /// This does the same thing but also returns None if the parent is empty
 pub fn dirname(path: &Path) -> Option<&Path> {
@@ -39,12 +37,12 @@ impl ToColor for lscolors::style::Color {
 }
 
 pub trait ToColorSpec {
-    fn to_color_spec(&self) -> ColorSpec;
+    fn to_color_spec(&self) -> termcolor::ColorSpec;
 }
 
 impl ToColorSpec for lscolors::Style {
-    fn to_color_spec(&self) -> ColorSpec {
-        let mut cs = ColorSpec::new();
+    fn to_color_spec(&self) -> termcolor::ColorSpec {
+        let mut cs = termcolor::ColorSpec::new();
         cs.set_fg(self.foreground.as_ref().map(|c| c.to_color()))
             .set_bg(self.background.as_ref().map(|c| c.to_color()))
             .set_bold(self.font_style.bold)
