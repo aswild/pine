@@ -161,11 +161,15 @@ impl ArchiveError {
         Self { errno: ffi::archive_errno(archive), msg, prefix: None }
     }
 
-    /// The same as `ArchiveError::from_archive` , but with a custom prefix message string
-    unsafe fn with_prefix(archive: *mut ffi::archive, prefix: impl ToString) -> Self {
-        let mut err = unsafe { ArchiveError::from_archive(archive) };
-        err.prefix = Some(prefix.to_string());
-        err
+    #[allow(dead_code)]
+    fn set_msg(mut self, msg: impl ToString) -> Self {
+        self.msg = msg.to_string();
+        self
+    }
+
+    fn context(mut self, prefix: impl ToString) -> Self {
+        self.prefix = Some(prefix.to_string());
+        self
     }
 
     /// Create an ArchiveError not actually derived from a struct archive, just a prefix message
@@ -195,9 +199,6 @@ pub struct ArchiveReader<R: Read> {
     /// archive`
     ptr: *mut ffi::archive,
     /// Rust reader and buffer, used by the read callback
-    // This field is passed as a raw pointer to libarchive, and never used directly from Rust code,
-    // thus the compiler thinks it's never used.
-    #[allow(dead_code)]
     read_inner: Pin<Box<ReadInner<R>>>,
     /// Cached struct archive_entry for use during reading. A reference to this is returned by
     /// read_next_header
@@ -205,6 +206,17 @@ pub struct ArchiveReader<R: Read> {
 }
 
 impl<R: Read> ArchiveReader<R> {
+    /// Read callback. This is a C ABI function called by libarchive, a pointer to this function is
+    /// passed to archive_read_open.
+    ///
+    /// Arguments:
+    ///   * archive: the `struct archive` pointer
+    ///   * data: opaque user data pointer from libarchive's perspective. In ArchiveReader, this
+    ///     is a `*mut ReadInner<R>` version of self.read_inner.
+    ///   * out_buf: output argument, we must set this to point to our read buffer, which is inside
+    ///     the ReadInner object
+    ///
+    /// Returns: the number of bytes read into *out_buf, 0 for EOF, or -1 on error.
     #[allow(unsafe_op_in_unsafe_fn)]
     unsafe extern "C" fn read_callback(
         archive: *mut ffi::archive,
@@ -254,18 +266,39 @@ impl<R: Read> ArchiveReader<R> {
 
     /// Create a new ArchiveReader wrapping the given reader.
     ///
-    /// May panic if `archive_read_new` or `archive_read_open` fail, which shouldn't happen in
-    /// normal operation and probably indicates OOM.
+    /// May panic if `archive_read_new` fails, which shouldn't happen in normal operation and
+    /// probably indicates OOM.
     pub fn new(reader: R) -> Result<Self, ArchiveError> {
-        let mut read_inner = ReadInner::new_pinned(reader, DEFAULT_BUF_SIZE);
+        // allocate the struct archive
+        let archive_ptr = unsafe { ffi::archive_read_new() };
+        if archive_ptr.is_null() {
+            return Err(ArchiveError {
+                errno: libc::ENOMEM,
+                msg: "archive_read_new() returned NULL".to_string(),
+                prefix: None,
+            });
+        }
 
-        let ptr = unsafe {
-            let archive = expect_nonnull!(ffi::archive_read_new());
-            if ffi::archive_read_support_format_all(archive) != ffi::ARCHIVE_OK {
-                return Err(ArchiveError::with_prefix(archive, "failed to enable archive formats"));
+        let read_inner = ReadInner::new_pinned(reader, DEFAULT_BUF_SIZE);
+        // SAFETY: ptr came from archive_read_new as it should, and we checked that it's not null.
+        let mut ar = Self { ptr: archive_ptr, read_inner, entry: ArchiveEntry::new() };
+        unsafe { ar.open()? };
+        Ok(ar)
+    }
+
+    /// Enable all libarchive formats and filters, and open the archive. This must be run at the
+    /// end of `new()` or else the ArchiveReader will be in a bad state.  This method is only
+    /// separate from new() so that it can use other Rust methods with `self` as a convenience.
+    ///
+    /// SAFETY: this method must only ever be called once, at the end of `new`, and `self.ptr` must
+    /// already be valid.
+    unsafe fn open(&mut self) -> Result<(), ArchiveError> {
+        unsafe {
+            if ffi::archive_read_support_format_all(self.ptr) != ffi::ARCHIVE_OK {
+                return Err(self.last_error().context("failed to enable archive formats"));
             }
-            if ffi::archive_read_support_filter_all(archive) != ffi::ARCHIVE_OK {
-                return Err(ArchiveError::with_prefix(archive, "failed to enable archive filters"));
+            if ffi::archive_read_support_filter_all(self.ptr) != ffi::ARCHIVE_OK {
+                return Err(self.last_error().context("failed to enable archive filters"));
             }
 
             // as_mut converts Pin<Box<ReadInner<R>>> to Pin<&mut ReadInner<R>>,
@@ -275,21 +308,18 @@ impl<R: Read> ArchiveReader<R> {
             // SAFETY: we must never use this pointer to move out of or drop the read_inner. This
             // pointer is passed to read_callback() where we have to use it carefully.
             let data_ptr =
-                read_inner.as_mut().get_unchecked_mut() as *mut ReadInner<R> as *mut c_void;
+                self.read_inner.as_mut().get_unchecked_mut() as *mut ReadInner<R> as *mut c_void;
 
             // args are struct archive*. void* user_data, open callback, read callback, close
             // callback. We don't give libarchive any open/close callbacks because all of that is
             // handled in Rust.
-            assert_eq!(
-                ffi::archive_read_open(archive, data_ptr, None, Some(Self::read_callback), None),
-                ffi::ARCHIVE_OK,
-                "archive_read_open failed: {}",
-                ArchiveError::from_archive(archive),
-            );
-
-            archive
-        };
-        Ok(Self { ptr, read_inner, entry: ArchiveEntry::new() })
+            if ffi::archive_read_open(self.ptr, data_ptr, None, Some(Self::read_callback), None)
+                != ffi::ARCHIVE_OK
+            {
+                return Err(self.last_error().context("failed to open archive"));
+            }
+        }
+        Ok(())
     }
 
     /// Read the next entry in the archive, consuming input from the inner reader. Returns a shared
@@ -312,6 +342,7 @@ impl<R: Read> ArchiveReader<R> {
 
 impl<R: Read> Drop for ArchiveReader<R> {
     fn drop(&mut self) {
+        // archive_read_free calls archive_read_close for us
         let ret = unsafe { ffi::archive_read_free(self.ptr) };
         debug_assert_eq!(ret, ffi::ARCHIVE_OK, "archive_read_free failed!");
         // drop for the ReadInner will run next, closing the inner reader and dropping the buffer
