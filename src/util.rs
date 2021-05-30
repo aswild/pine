@@ -1,3 +1,6 @@
+// Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::path::Path;
 
 /// Path::new("foo").parent() == Some("") which is weird and not really what I want.

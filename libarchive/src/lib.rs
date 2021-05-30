@@ -1,3 +1,6 @@
+// Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Basic safe Rust bindings for libarchive.
 //!
 //! This library is minimal, implementing only what's needed for pine. Currently it supports

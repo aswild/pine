@@ -1,3 +1,6 @@
+// Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -21,6 +24,16 @@ fn parse_args() -> Args {
     let m = App::new("pine")
         .about("Display things as a tree.")
         .version(crate_version!())
+        .long_version(
+            format!(
+                "{}\n\
+                Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>\n\
+                This is free software; you are free to change and redistribute it.\n\
+                There is NO WARRANTY, to the extent permitted by law.",
+                crate_version!()
+            )
+            .as_str(),
+        )
         .setting(AppSettings::ColoredHelp)
         .setting(AppSettings::DeriveDisplayOrder)
         .setting(AppSettings::UnifiedHelpMessage)

@@ -1,3 +1,6 @@
+// Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::collections::btree_map::{BTreeMap, Entry as BTreeEntry};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
