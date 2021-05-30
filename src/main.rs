@@ -22,7 +22,7 @@ struct Args {
 
 fn parse_args() -> Args {
     let m = App::new("pine")
-        .about("Display things as a tree.")
+        .about("Print lists of files as a tree.")
         .version(crate_version!())
         .long_version(
             format!(
