@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use libarchive::{ArchiveError, ArchiveReader};
+use libarchive::ArchiveReader;
 use lscolors::LsColors;
 use termcolor::WriteColor;
 use walkdir::WalkDir;
@@ -92,13 +92,13 @@ impl PineTree {
 
             let entry_path = entry
                 .path()
-                .ok_or_else(|| ArchiveError::new_custom("read an entry that has no path".into()))?;
+                .ok_or_else(|| DirTreeError::BadEntry("libarchive entry has no path".into()))?;
 
             let tree_entry = if entry.is_file() {
                 Entry::File
             } else if entry.is_symlink() {
                 let symlink_path = entry.symlink_path().ok_or_else(|| {
-                    ArchiveError::new_custom(format!(
+                    DirTreeError::BadEntry(format!(
                         "Entry '{}' is a symlink but has no symlink path",
                         entry_path.display()
                     ))

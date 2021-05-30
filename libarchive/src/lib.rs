@@ -171,12 +171,6 @@ impl ArchiveError {
         self.prefix = Some(prefix.to_string());
         self
     }
-
-    /// Create an ArchiveError not actually derived from a struct archive, just a prefix message
-    /// string.
-    pub fn new_custom(msg: String) -> Self {
-        Self { errno: 0, msg, prefix: None }
-    }
 }
 
 /// Rust reader and buffer used for libarchive callbacks. This struct is pinned inside
