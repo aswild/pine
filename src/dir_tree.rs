@@ -11,6 +11,8 @@ use termcolor::WriteColor;
 
 use crate::util::*;
 
+pub type DirTreeResult = Result<DirTree, DirTreeError>;
+
 #[derive(Debug)]
 pub enum Entry {
     File,
@@ -219,7 +221,7 @@ mod tests {
 
     use super::{DirTree, DirTreeError, Entry};
 
-    fn make_tree() -> Result<DirTree, DirTreeError> {
+    fn make_tree() -> DirTreeResult {
         let mut dt = DirTree::default();
         dt.insert("./foo", Entry::empty_dir())?;
         dt.insert("foo/bar", Entry::File)?;

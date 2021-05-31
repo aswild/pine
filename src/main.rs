@@ -1,23 +1,26 @@
 // Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::ffi::OsString;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::{crate_version, App, AppSettings, Arg};
 use lscolors::LsColors;
 use termcolor::{ColorChoice, StandardStream};
 
 mod dir_tree;
 mod input;
+mod package;
 mod util;
 use input::PineTree;
 
 #[derive(Debug)]
 struct Args {
     color_choice: ColorChoice,
-    inputs: Vec<PathBuf>,
+    package: bool,
+    inputs: Vec<OsString>,
 }
 
 fn parse_args() -> Args {
@@ -51,11 +54,15 @@ fn parse_args() -> Args {
                 .overrides_with("color")
                 .help("alias for --color=always"),
         )
+        .arg(Arg::with_name("package").short("p").long("package").help(
+            "List contents of the named Linux packages rather than archives or directories.\n\
+            Currently supported package managers: pacman",
+        ))
         .arg(
             Arg::with_name("input")
                 .required(true)
                 .multiple(true)
-                .help("path to directory, archive file, or package to tree"),
+                .help("path to directory, archive file, or package name"),
         )
         .get_matches();
 
@@ -76,9 +83,11 @@ fn parse_args() -> Args {
         }
     };
 
-    let inputs = m.values_of_os("input").unwrap().map(PathBuf::from).collect();
-
-    Args { color_choice, inputs }
+    Args {
+        color_choice,
+        package: m.is_present("package"),
+        inputs: m.values_of_os("input").unwrap().map(OsString::from).collect(),
+    }
 }
 
 fn run() -> Result<()> {
@@ -87,12 +96,19 @@ fn run() -> Result<()> {
     let stdout = StandardStream::stdout(args.color_choice);
     let mut stdout_lock = stdout.lock();
 
-    for (i, path) in args.inputs.iter().enumerate() {
+    for (i, input) in args.inputs.iter().enumerate() {
         if i != 0 {
             writeln!(&mut stdout_lock)?;
         }
-        let tree = PineTree::from_path(path)
-            .with_context(|| format!("Failed to load tree for '{}'", path.display()))?;
+        let tree = if args.package {
+            PineTree::from_package(
+                input.to_str().ok_or_else(|| anyhow!("Package name input is not UTF-8"))?,
+            )
+        } else {
+            PineTree::from_path(input)
+        }
+        .with_context(|| format!("Failed to load tree for '{}'", Path::new(&input).display()))?;
+
         tree.print(&mut stdout_lock, &color)?;
     }
 

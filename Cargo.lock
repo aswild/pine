@@ -57,6 +57,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "if_chain"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f7280c75fb2e2fc47080ec80ccc481376923acb04501957fc38f935c3de5088"
+
+[[package]]
 name = "libarchive"
 version = "0.1.0"
 dependencies = [
@@ -83,6 +89,7 @@ dependencies = [
  "anyhow",
  "atty",
  "clap",
+ "if_chain",
  "libarchive",
  "lscolors",
  "termcolor",
