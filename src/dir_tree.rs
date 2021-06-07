@@ -183,12 +183,12 @@ impl DirTree {
         }
     }
 
-    fn write_to<W>(&self, w: &mut W, root: Option<&Path>, color: &LsColors) -> io::Result<()>
+    fn write_to<W>(&self, w: &mut W, root: Option<&str>, color: &LsColors) -> io::Result<()>
     where
         W: Write + WriteColor,
     {
         if let Some(ref root) = root {
-            writeln!(w, "{}", root.display())?;
+            writeln!(w, "{}", root)?;
         }
 
         let mut it = self.0.iter().peekable();
@@ -198,12 +198,11 @@ impl DirTree {
         Ok(())
     }
 
-    pub fn print_with_root<P, W>(&self, w: &mut W, root: P, color: &LsColors) -> io::Result<()>
+    pub fn print_with_root<W>(&self, w: &mut W, root: &str, color: &LsColors) -> io::Result<()>
     where
-        P: AsRef<Path>,
         W: Write + WriteColor,
     {
-        self.write_to(w, Some(root.as_ref()), color)
+        self.write_to(w, Some(root), color)
     }
 
     pub fn print<W>(&self, w: &mut W, color: &LsColors) -> io::Result<()>
@@ -219,7 +218,7 @@ mod tests {
     use lscolors::LsColors;
     use termcolor::NoColor;
 
-    use super::{DirTree, DirTreeError, Entry};
+    use super::{DirTree, DirTreeResult, Entry};
 
     fn make_tree() -> DirTreeResult {
         let mut dt = DirTree::default();
@@ -256,7 +255,7 @@ root
         let color = LsColors::empty();
         let mut v = NoColor::new(Vec::<u8>::new());
 
-        dt.write_to(&mut v, Some(std::path::Path::new("root")), &color).unwrap();
+        dt.write_to(&mut v, Some("root"), &color).unwrap();
         let s = String::from_utf8(v.into_inner()).unwrap();
         assert_eq!(s, expected);
     }

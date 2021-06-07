@@ -38,7 +38,7 @@ impl PineTree {
             InputKind::Filesystem(path) => read_from_filesystem(&path)?,
             InputKind::Archive(path) => {
                 let tree = read_from_archive(&path)?;
-                root = Some(path.to_string_lossy().into_owned());
+                root = Some(path.display().to_string());
                 tree
             }
             InputKind::Package(name) => {
