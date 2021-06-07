@@ -27,18 +27,27 @@ pub enum InputKind {
 /// The parsed directory tree, with a link back to the type of input
 #[derive(Debug)]
 pub struct PineTree {
-    pub kind: InputKind,
-    pub tree: DirTree,
+    tree: DirTree,
+    root: Option<String>,
 }
 
 impl PineTree {
     pub fn new(kind: InputKind) -> Result<Self, DirTreeError> {
+        let mut root = None;
         let tree = match &kind {
             InputKind::Filesystem(path) => read_from_filesystem(&path)?,
-            InputKind::Archive(path) => read_from_archive(&path)?,
-            InputKind::Package(name) => read_from_package(&name)?,
+            InputKind::Archive(path) => {
+                let tree = read_from_archive(&path)?;
+                root = Some(path.to_string_lossy().into_owned());
+                tree
+            }
+            InputKind::Package(name) => {
+                let (pkgname, tree) = read_from_package(&name)?;
+                root = Some(pkgname);
+                tree
+            }
         };
-        Ok(Self { kind, tree })
+        Ok(Self { tree, root })
     }
 
     /// Look at a path and determine which sort of input it should be. Assumes that all archives
@@ -64,10 +73,9 @@ impl PineTree {
     where
         W: Write + WriteColor,
     {
-        match &self.kind {
-            InputKind::Filesystem(_) => self.tree.print(w, color),
-            InputKind::Archive(path) => self.tree.print_with_root(w, path, color),
-            InputKind::Package(name) => self.tree.print_with_root(w, name, color),
+        match &self.root {
+            Some(root) => self.tree.print_with_root(w, root, color),
+            None => self.tree.print(w, color),
         }
     }
 }
