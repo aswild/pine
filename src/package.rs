@@ -66,9 +66,10 @@ impl Pacman {
         let mut provides = HashMap::new();
 
         // loop through directory entries
-        for dirent in
-            fs::read_dir(path)?.flatten().filter(|d| matches!(d.file_type(), Ok(t) if t.is_dir()))
-        {
+        let dir_iter = fs::read_dir(path).map_err(|err| {
+            io::Error::new(err.kind(), format!("no pacman database at '{}'", path.display()))
+        })?;
+        for dirent in dir_iter.flatten().filter(|d| matches!(d.file_type(), Ok(t) if t.is_dir())) {
             // look for a desc file in the directory
             let mut desc_path = dirent.path();
             desc_path.push("desc");
