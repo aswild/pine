@@ -102,7 +102,15 @@ fn read_from_filesystem(path: &Path) -> DirTreeResult {
     Ok(dt)
 }
 
-pub fn read_from_archive(path: &Path) -> DirTreeResult {
+/// Load a dirtree from the libarchive-supported archive file at `path`.
+///
+/// The `filter` function is called on the full path of every entry in the archive, if it returns
+/// false than that entry is skipped. No special handling is done to skip children of directories,
+/// the filter function must take care of that if needed.
+pub fn read_from_archive_with_filter<F>(path: &Path, filter: F) -> DirTreeResult
+where
+    F: Fn(&Path) -> bool,
+{
     let mut dt = DirTree::default();
     let mut archive = ArchiveReader::new(File::open(path)?)?;
     loop {
@@ -115,6 +123,10 @@ pub fn read_from_archive(path: &Path) -> DirTreeResult {
         let entry_path = entry
             .path()
             .ok_or_else(|| DirTreeError::BadEntry("libarchive entry has no path".into()))?;
+
+        if !filter(&entry_path) {
+            continue;
+        }
 
         let tree_entry = if entry.is_file() {
             Entry::File
@@ -141,4 +153,9 @@ pub fn read_from_archive(path: &Path) -> DirTreeResult {
     }
 
     Ok(dt)
+}
+
+/// Load a DirTree from the libarchive-supported file at `path`.
+pub fn read_from_archive(path: &Path) -> DirTreeResult {
+    read_from_archive_with_filter(path, |_| true)
 }

@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::dir_tree::{DirTree, DirTreeError};
-use crate::input::read_from_archive;
+use crate::input::read_from_archive_with_filter;
 
 // common types and traits for a generic package manager interface
 
@@ -131,7 +131,13 @@ struct PacmanPackage {
 
 impl Package for PacmanPackage {
     fn build_contents(&self) -> PkgLoadResult {
-        let tree = read_from_archive(&self.path.join("mtree"))?;
+        // Path filter excludes the top-level .BUILDINFO and .PKGINFO metadata files. This could be
+        // made fancier to ignore the "./" prefix and look for other top-level dotfiles using
+        // a regex, but for now this simple version works.
+        let path_filter =
+            |path: &Path| !matches!(path.to_str(), Some("./.BUILDINFO") | Some("./.PKGINFO"));
+
+        let tree = read_from_archive_with_filter(&self.path.join("mtree"), path_filter)?;
         Ok((self.name.clone(), tree))
     }
 }
