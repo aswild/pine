@@ -11,61 +11,29 @@ use termcolor::WriteColor;
 use walkdir::WalkDir;
 
 use crate::dir_tree::{DirTree, DirTreeError, DirTreeResult, Entry};
-use crate::package::read_from_package;
 
-/// The flavors of input that pine can load and generate a tree from
-#[derive(Debug)]
-pub enum InputKind {
-    /// Recursively walk a filesystem directory
-    Filesystem(PathBuf),
-    /// Load a single archive file in a format supported by libarchive
-    Archive(PathBuf),
-    /// Load files owned by a Linux distro packge
-    Package(String),
-}
-
-/// The parsed directory tree, with a link back to the type of input
+/// The parsed directory tree, optionally with a custom root node name (if root is None, then tree
+/// usually has only one top-level directory entry)
 #[derive(Debug)]
 pub struct PineTree {
-    tree: DirTree,
-    root: Option<String>,
+    pub tree: DirTree,
+    pub root: Option<String>,
 }
 
 impl PineTree {
-    pub fn new(kind: InputKind) -> Result<Self, DirTreeError> {
-        let mut root = None;
-        let tree = match &kind {
-            InputKind::Filesystem(path) => read_from_filesystem(&path)?,
-            InputKind::Archive(path) => {
-                let tree = read_from_archive(&path)?;
-                root = Some(path.display().to_string());
-                tree
-            }
-            InputKind::Package(name) => {
-                let (pkgname, tree) = read_from_package(&name)?;
-                root = Some(pkgname);
-                tree
-            }
-        };
-        Ok(Self { tree, root })
-    }
-
-    /// Look at a path and determine which sort of input it should be. Assumes that all archives
-    /// are files.
+    /// Create a PineTree from a filesystem path. If the path is a directory, then walk its
+    /// contents. If the path is a file, assume it's an archive and load its contents using
+    /// libarchive.
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, DirTreeError> {
         let path = path.as_ref();
         let meta = std::fs::metadata(path)?;
-        let kind = if meta.is_dir() {
-            InputKind::Filesystem(path.into())
-        } else {
-            InputKind::Archive(path.into())
-        };
-        Self::new(kind)
-    }
 
-    /// Build a tree from a distro package
-    pub fn from_package(pkg: impl Into<String>) -> Result<Self, DirTreeError> {
-        Self::new(InputKind::Package(pkg.into()))
+        let (tree, root) = if meta.is_dir() {
+            (read_from_filesystem(path)?, None)
+        } else {
+            (read_from_archive(path)?, Some(path.display().to_string()))
+        };
+        Ok(Self { tree, root })
     }
 
     /// Print our DirTree to a stream. For archives, we have to specify the name of the root node.
@@ -102,7 +70,7 @@ fn read_from_filesystem(path: &Path) -> DirTreeResult {
     Ok(dt)
 }
 
-/// Load a dirtree from the libarchive-supported archive file at `path`.
+/// Load a DirTree from the libarchive-supported archive file at `path`.
 ///
 /// The `filter` function is called on the full path of every entry in the archive, if it returns
 /// false than that entry is skipped. No special handling is done to skip children of directories,

@@ -6,42 +6,21 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::dir_tree::{DirTree, DirTreeError};
-use crate::input::read_from_archive_with_filter;
+use crate::dir_tree::DirTreeError;
+use crate::input::{read_from_archive_with_filter, PineTree};
 
-// common types and traits for a generic package manager interface
-
-/// The result of loading a package. The String in the Ok variant represents the actual name of the
-/// package to be displayed, which may differ from the input in case of packages aliases/providers.
-type PkgLoadResult = Result<(String, DirTree), DirTreeError>;
-
-/// Package types have a way to load their name and a DirTree
-trait Package {
-    fn build_contents(&self) -> PkgLoadResult;
+pub trait PackageManager {
+    /// Find the package with the given name and load its contents into a PineTree. Return Ok(None)
+    /// for package not found, and Err(...) for a failure to find or read the package database.
+    /// The PineTree's root should be set to the actual full name of the package, which may be
+    /// different due to aliases/providers.
+    fn read_package(&self, name: &str) -> Result<Option<PineTree>, DirTreeError>;
 }
 
-/// Package Managers can find packages
-trait PackageManager {
-    /// The type of package this manager produces
-    type Pkg: Package;
-
-    /// Find the package with the given name. Return Ok(None) for package not found, and Err(...)
-    /// for a failure to find or read the package database.
-    fn find(&self, name: &str) -> Option<Self::Pkg>;
-}
-
-/// Initialize the default package manager (e.g. auto-detected on the system) and find a package
-pub fn read_from_package(name: &str) -> PkgLoadResult {
-    // for now, only pacman is supported
-    read_from_package_manager(&Pacman::new()?, name)
-}
-
-/// Find a package from a particular package manager
-fn read_from_package_manager<M: PackageManager>(manager: &M, name: &str) -> PkgLoadResult {
-    let pkg = manager
-        .find(name)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "package not found"))?;
-    pkg.build_contents()
+/// Load the system's package manager databse and parse its package lists.
+pub fn default_package_manager() -> Result<Box<dyn PackageManager>, io::Error> {
+    // for now only pacman is supported
+    Ok(Box::new(Pacman::new()?))
 }
 
 #[derive(Debug)]
@@ -71,8 +50,7 @@ impl Pacman {
         })?;
         for dirent in dir_iter.flatten().filter(|d| matches!(d.file_type(), Ok(t) if t.is_dir())) {
             // look for a desc file in the directory
-            let mut desc_path = dirent.path();
-            desc_path.push("desc");
+            let desc_path = dirent.path().join("desc");
             if desc_path.is_file() {
                 // parse it, warn & continue on errors
                 let desc = match PacmanPackageDesc::load(&desc_path) {
@@ -100,46 +78,32 @@ impl Pacman {
 }
 
 impl PackageManager for Pacman {
-    type Pkg = PacmanPackage;
-
-    fn find(&self, name: &str) -> Option<Self::Pkg> {
-        // look for an exact match
-        if let Some(path) = self.packages.get(name) {
-            Some(PacmanPackage { name: name.to_string(), path: path.clone() })
+    fn read_package(&self, name: &str) -> Result<Option<PineTree>, DirTreeError> {
+        let (real_name, path) = if let Some(path) = self.packages.get(name) {
+            // exact pkgname match
+            (name, path)
         } else {
-            // look for a matching provider
+            // no exact match, look for a provider
             if let Some(real_name) = self.provides.get(name) {
                 if let Some(path) = self.packages.get(real_name) {
-                    Some(PacmanPackage { name: real_name.to_string(), path: path.clone() })
+                    (real_name.as_str(), path)
                 } else {
                     // we should never have a provider registered for a package that doesn't exist
                     unreachable!();
                 }
             } else {
-                None
+                return Ok(None);
             }
-        }
-    }
-}
+        };
 
-#[derive(Debug)]
-struct PacmanPackage {
-    /// the package's name
-    name: String,
-    /// path to the package's directory (that contains the mtree)
-    path: PathBuf,
-}
-
-impl Package for PacmanPackage {
-    fn build_contents(&self) -> PkgLoadResult {
         // Path filter excludes the top-level .BUILDINFO and .PKGINFO metadata files. This could be
         // made fancier to ignore the "./" prefix and look for other top-level dotfiles using
         // a regex, but for now this simple version works.
         let path_filter =
             |path: &Path| !matches!(path.to_str(), Some("./.BUILDINFO") | Some("./.PKGINFO"));
 
-        let tree = read_from_archive_with_filter(&self.path.join("mtree"), path_filter)?;
-        Ok((self.name.clone(), tree))
+        let tree = read_from_archive_with_filter(&path.join("mtree"), path_filter)?;
+        Ok(Some(PineTree { tree, root: Some(real_name.into()) }))
     }
 }
 

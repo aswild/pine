@@ -3,9 +3,8 @@
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::Path;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use clap::{crate_version, App, AppSettings, Arg};
 use lscolors::LsColors;
 use termcolor::{ColorChoice, StandardStream};
@@ -14,7 +13,8 @@ mod dir_tree;
 mod input;
 mod package;
 mod util;
-use input::PineTree;
+
+use crate::input::PineTree;
 
 #[derive(Debug)]
 struct Args {
@@ -90,34 +90,61 @@ fn parse_args() -> Args {
     }
 }
 
-fn run() -> Result<()> {
+fn run() -> Result<i32> {
     let args = parse_args();
     let color = LsColors::from_env().unwrap_or_default();
     let stdout = StandardStream::stdout(args.color_choice);
     let mut stdout_lock = stdout.lock();
 
-    for (i, input) in args.inputs.iter().enumerate() {
-        if i != 0 {
+    let package_manager = match args.package {
+        true => Some(crate::package::default_package_manager()?),
+        false => None,
+    };
+
+    let mut error_count = 0;
+    let mut first = true;
+    for input in args.inputs.iter() {
+        // print blank lines between entries
+        if first {
+            first = false;
+        } else {
             writeln!(&mut stdout_lock)?;
         }
-        let tree = if args.package {
-            PineTree::from_package(
-                input.to_str().ok_or_else(|| anyhow!("Package name input is not UTF-8"))?,
-            )
-        } else {
-            PineTree::from_path(input)
-        }
-        .with_context(|| format!("Failed to load tree for '{}'", Path::new(&input).display()))?;
 
-        tree.print(&mut stdout_lock, &color)?;
+        let tree_ret = if let Some(pm) = &package_manager {
+            if let Some(pkgname) = input.to_str() {
+                match pm.read_package(pkgname) {
+                    Ok(Some(tree)) => Ok(tree),
+                    Ok(None) => Err(anyhow!("package not found")),
+                    Err(e) => Err(e.into()),
+                }
+            } else {
+                Err(anyhow!("package name is not valid UTF-8"))
+            }
+        } else {
+            // map DirTreeError into Anyhow::Error
+            PineTree::from_path(input).map_err(Into::into)
+        };
+
+        match tree_ret {
+            Ok(tree) => tree.print(&mut stdout_lock, &color)?,
+            Err(e) => {
+                eprintln!("Error: {}: {:#}", input.to_string_lossy(), e);
+                error_count += 1;
+            }
+        }
     }
 
-    Ok(())
+    Ok(error_count)
 }
 
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("Error: {:#}", e);
-        std::process::exit(1);
+    match run() {
+        Ok(0) => (),
+        Ok(_) => std::process::exit(1),
+        Err(e) => {
+            eprintln!("Error: {:#}", e);
+            std::process::exit(1);
+        }
     }
 }
