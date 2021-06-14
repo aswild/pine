@@ -1,6 +1,6 @@
 [package]
 name = "pine"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Allen Wild <allenwild93@gmail.com>"]
 edition = "2018"
 
@@ -8,7 +8,7 @@ edition = "2018"
 members = ["libarchive"]
 
 [dependencies]
-anyhow = "1.0.40"
+anyhow = "1.0.41"
 atty = "0.2.14"
 clap = "2.33.3"
 libarchive = { path = "./libarchive" }

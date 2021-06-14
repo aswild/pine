@@ -1,11 +1,11 @@
 [package]
 name = "libarchive"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Allen Wild <allenwild93@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-libc = "0.2.91"
+libc = "0.2.97"
 
 [build-dependencies]
 pkg-config = "0.3.19"
