@@ -3,7 +3,7 @@
 
 fn main() {
     eprintln!("Searching for libarchive>=3.0.0 with pkg-config.");
-    if let Ok(_) = pkg_config::Config::new().atleast_version("3.0.0").probe("libarchive") {
+    if pkg_config::Config::new().atleast_version("3.0.0").probe("libarchive").is_ok() {
         // probe() printed all the relevant cargo metadata output so we don't have to do anything
         eprintln!("libarchive found using pkg-config");
         return;
