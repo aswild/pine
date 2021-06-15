@@ -57,6 +57,24 @@ macro_rules! expect_nonnull {
 /// IO read buffer size (heap allocated)
 const DEFAULT_BUF_SIZE: usize = 8192;
 
+/// Libarchive has very broken UTF-8 handling when it comes to path names, trying too hard to rely
+/// on broken POSIX locale interfaces and just generally being a mess. This function is equivalent
+/// to calling `setlocale(LC_CTYPE, "");` in C, which configures the libc locale code just enough
+/// so that libarchive is able to handle archives with non-ASCII path names at all.
+///
+/// This function should be called near the beginning of main() by applications that plan to use
+/// libarchive, unless you're doing your own locale handling. setlocale is not thread-safe, so it
+/// should be set up before spawning any additional threads.
+///
+/// See https://github.com/libarchive/libarchive/issues/587 and
+/// https://github.com/mpv-player/mpv/commit/1e70e82baa9193f6f027338b0fab0f5078971fbe
+pub fn fix_posix_locale_for_libarchive() {
+    let empty = CStr::from_bytes_with_nul(b"\0").unwrap();
+    unsafe {
+        libc::setlocale(libc::LC_CTYPE, empty.as_ptr());
+    }
+}
+
 /// Convert a borrowed raw C string into an owned PathBuf, or None if the pointer is NULL.
 ///
 /// SAFETY: `ptr` must point to a null-terminated string, or be a NULL pointer.

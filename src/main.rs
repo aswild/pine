@@ -101,6 +101,9 @@ fn run() -> Result<i32> {
         false => None,
     };
 
+    // un-break libarchive's non-ascii pathname handling
+    libarchive::fix_posix_locale_for_libarchive();
+
     let mut error_count = 0;
     let mut first = true;
     for input in args.inputs.iter() {
