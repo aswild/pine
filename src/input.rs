@@ -36,6 +36,20 @@ impl PineTree {
         Ok(Self { tree, root })
     }
 
+    /// Create a PineTree from a list of filenames, one per line. All leaf entries are assumed to
+    /// be normal files, since there's no way to convey symlink metadata. Any name which appears as
+    /// an intermediate path component is assumed to be a directory.
+    pub fn from_text_listing(list: &str) -> Result<Self, DirTreeError> {
+        let mut tree = DirTree::default();
+        for line in list.lines() {
+            // when reading filenames from text, we can't know in advanced whether it's supposed
+            // to be a file or directory, so assume everything is a file at first, replacing them
+            // with directories as needed.
+            tree.replace(line, Entry::File)?;
+        }
+        Ok(Self { tree, root: None })
+    }
+
     /// Print our DirTree to a stream. For archives, we have to specify the name of the root node.
     pub fn print<W>(&self, w: &mut W, color: &LsColors) -> io::Result<()>
     where

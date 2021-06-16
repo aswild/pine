@@ -140,12 +140,27 @@ pub enum DirTreeError {
 pub struct DirTree(BTreeMap<PathBuf, Entry>);
 
 impl DirTree {
+    /// Insert a new entry into the DirTree. Returns FileExists if the final path component already
+    /// exists, or NotADirectory if an intermediate path component exists that's not a directory.
     #[inline]
     pub fn insert(&mut self, path: impl AsRef<Path>, entry: Entry) -> Result<(), DirTreeError> {
-        self._insert(path.as_ref(), entry)
+        self._insert(path.as_ref(), entry, false)
     }
 
-    fn _insert(&mut self, path: &Path, entry: Entry) -> Result<(), DirTreeError> {
+    /// Insert a new entry or replace an existing entry in the DirTree. If the full path exists,
+    /// the existing entry is replaced. If an intermediate path component exists that's not
+    /// a directory, it's replaced with a directory. In both cases, the old entry is discarded.
+    #[inline]
+    pub fn replace(&mut self, path: impl AsRef<Path>, entry: Entry) -> Result<(), DirTreeError> {
+        self._insert(path.as_ref(), entry, true)
+    }
+
+    fn _insert(
+        &mut self,
+        path: &Path,
+        new_entry: Entry,
+        replace: bool,
+    ) -> Result<(), DirTreeError> {
         let mut cur = self;
         if let Some(dir) = dirname(path) {
             for (i, comp) in dir.components().enumerate() {
@@ -160,27 +175,38 @@ impl DirTree {
                     }
                 };
 
-                let entry = cur.0.entry(PathBuf::from(comp)).or_insert_with(Entry::default);
+                let entry = cur.0.entry(PathBuf::from(comp)).or_insert_with(Entry::empty_dir);
                 if let Entry::Directory(child_dir) = entry {
+                    // Intermediate path component is a directory as expected
                     cur = child_dir;
+                } else if replace {
+                    // Intermediate path component isn't a directory, clobber it, discarding
+                    // whatever used to be there.
+                    let _ = std::mem::replace(entry, Entry::empty_dir());
+                    // Slightly ugly match because we need a mut ref to the inside of the entry
+                    // after it's created and we can't borrow directly from an enum variant without
+                    // matching.
+                    cur = match entry {
+                        Entry::Directory(child_dir) => child_dir,
+                        _ => unreachable!(),
+                    };
                 } else {
-                    let mut err_path = PathBuf::new();
-                    for p in dir.iter().take(i + 1) {
-                        err_path.push(p);
-                    }
-                    return Err(DirTreeError::NotADirectory(err_path));
+                    // Intermediate path component isn't a directory, return an error.
+                    return Err(DirTreeError::NotADirectory(dir.iter().take(i + 1).collect()));
                 }
             }
         }
 
         // now cur is the DirTree that we'll add the final path component to it
         let new_name = PathBuf::from(path.file_name().unwrap());
-        if let BTreeEntry::Vacant(slot) = cur.0.entry(new_name) {
-            slot.insert(entry);
-            Ok(())
+        if replace {
+            cur.0.insert(new_name, new_entry);
+        } else if let BTreeEntry::Vacant(slot) = cur.0.entry(new_name) {
+            slot.insert(new_entry);
         } else {
-            Err(DirTreeError::FileExists(PathBuf::from(path)))
+            return Err(DirTreeError::FileExists(path.into()));
         }
+        Ok(())
     }
 
     fn write_to<W>(&self, w: &mut W, root: Option<&str>, color: &LsColors) -> io::Result<()>
