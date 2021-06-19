@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{self, Write};
 
 use anyhow::{anyhow, Result};
 use clap::{crate_version, App, AppSettings, Arg};
@@ -142,9 +142,19 @@ fn run() -> Result<i32> {
 }
 
 fn main() {
+    fn is_epipe(err: &anyhow::Error) -> bool {
+        if let Some(ioe) = err.downcast_ref::<io::Error>() {
+            if ioe.kind() == io::ErrorKind::BrokenPipe {
+                return true;
+            }
+        }
+        false
+    }
+
     match run() {
         Ok(0) => (),
         Ok(_) => std::process::exit(1),
+        Err(e) if is_epipe(&e) => (),
         Err(e) => {
             eprintln!("Error: {:#}", e);
             std::process::exit(1);
