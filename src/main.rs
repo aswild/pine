@@ -16,10 +16,17 @@ mod util;
 
 use crate::input::PineTree;
 
+#[derive(Debug, Clone, Copy)]
+enum InputMode {
+    Path,
+    Package,
+    TextList,
+}
+
 #[derive(Debug)]
 struct Args {
     color_choice: ColorChoice,
-    package: bool,
+    input_mode: InputMode,
     inputs: Vec<OsString>,
 }
 
@@ -59,6 +66,13 @@ fn parse_args() -> Args {
             Currently supported package managers: pacman",
         ))
         .arg(
+            Arg::with_name("text_listing")
+                .short("t")
+                .long("text-listing")
+                .conflicts_with("package")
+                .help("Read a newline-separated list of file and directory names"),
+        )
+        .arg(
             Arg::with_name("input")
                 .required(true)
                 .multiple(true)
@@ -83,26 +97,34 @@ fn parse_args() -> Args {
         }
     };
 
+    let input_mode = if m.is_present("package") {
+        InputMode::Package
+    } else if m.is_present("text_listing") {
+        InputMode::TextList
+    } else {
+        InputMode::Path
+    };
+
     Args {
         color_choice,
-        package: m.is_present("package"),
+        input_mode,
         inputs: m.values_of_os("input").unwrap().map(OsString::from).collect(),
     }
 }
 
 fn run() -> Result<i32> {
+    // un-break libarchive's non-ascii pathname handling
+    libarchive::fix_posix_locale_for_libarchive();
+
     let args = parse_args();
     let color = LsColors::from_env().unwrap_or_default();
     let stdout = StandardStream::stdout(args.color_choice);
     let mut stdout_lock = stdout.lock();
 
-    let package_manager = match args.package {
-        true => Some(crate::package::default_package_manager()?),
-        false => None,
+    let package_manager = match args.input_mode {
+        InputMode::Package => Some(crate::package::default_package_manager()?),
+        _ => None,
     };
-
-    // un-break libarchive's non-ascii pathname handling
-    libarchive::fix_posix_locale_for_libarchive();
 
     let mut error_count = 0;
     let mut first = true;
@@ -114,19 +136,20 @@ fn run() -> Result<i32> {
             writeln!(&mut stdout_lock)?;
         }
 
-        let tree_ret = if let Some(pm) = &package_manager {
-            if let Some(pkgname) = input.to_str() {
-                match pm.read_package(pkgname) {
-                    Ok(Some(tree)) => Ok(tree),
-                    Ok(None) => Err(anyhow!("package not found")),
-                    Err(e) => Err(e.into()),
+        let tree_ret = match args.input_mode {
+            InputMode::Package => {
+                if let Some(pkgname) = input.to_str() {
+                    match package_manager.as_ref().unwrap().read_package(pkgname) {
+                        Ok(Some(tree)) => Ok(tree),
+                        Ok(None) => Err(anyhow!("package not found")),
+                        Err(e) => Err(e.into()),
+                    }
+                } else {
+                    Err(anyhow!("package name is not valid UTF-8"))
                 }
-            } else {
-                Err(anyhow!("package name is not valid UTF-8"))
             }
-        } else {
-            // map DirTreeError into Anyhow::Error
-            PineTree::from_path(input).map_err(Into::into)
+            InputMode::Path => PineTree::from_path(input).map_err(Into::into),
+            InputMode::TextList => PineTree::from_text_listing_path(input).map_err(Into::into),
         };
 
         match tree_ret {

@@ -1,8 +1,8 @@
 // Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::fs::File;
-use std::io::{self, Write};
+use std::fs::{self, File};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use libarchive::ArchiveReader;
@@ -48,6 +48,18 @@ impl PineTree {
             tree.replace(line, Entry::File)?;
         }
         Ok(Self { tree, root: None })
+    }
+
+    pub fn from_text_listing_path(path: impl AsRef<Path>) -> Result<Self, DirTreeError> {
+        let path = path.as_ref();
+        let text = if path == Path::new("-") {
+            let mut s = String::new();
+            io::stdin().read_to_string(&mut s)?;
+            s
+        } else {
+            fs::read_to_string(path)?
+        };
+        Self::from_text_listing(&text)
     }
 
     /// Print our DirTree to a stream. For archives, we have to specify the name of the root node.
