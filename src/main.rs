@@ -63,7 +63,7 @@ fn parse_args() -> Args {
         )
         .arg(Arg::with_name("package").short("p").long("package").help(
             "List contents of the named Linux packages rather than archives or directories.\n\
-            Currently supported package managers: pacman",
+            Currently supported package managers: pacman, dpkg",
         ))
         .arg(
             Arg::with_name("text_listing")
