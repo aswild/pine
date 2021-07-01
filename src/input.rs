@@ -39,18 +39,46 @@ impl PineTree {
     /// Create a PineTree from a list of filenames, one per line. All leaf entries are assumed to
     /// be normal files, since there's no way to convey symlink metadata. Any name which appears as
     /// an intermediate path component is assumed to be a directory.
-    pub fn from_text_listing(list: &str) -> Result<Self, DirTreeError> {
+    pub fn from_text_listing(list: &str, check_fs: bool) -> Result<Self, DirTreeError> {
         let mut tree = DirTree::default();
         for line in list.lines() {
             // when reading filenames from text, we can't know in advanced whether it's supposed
             // to be a file or directory, so assume everything is a file at first, replacing them
             // with directories as needed.
-            tree.replace(line, Entry::File)?;
+            if line.ends_with('/') {
+                // if the path ends with a / then force it to be a directory, even if we'd
+                // otherwise be checking the filesystem
+                tree.replace(line, Entry::empty_dir())?;
+            } else if check_fs {
+                // try to stat the path and figure out what sort of file/entry it is
+                if let Ok(meta) = fs::symlink_metadata(line) {
+                    let ftype = meta.file_type();
+                    if ftype.is_dir() {
+                        tree.replace(line, Entry::empty_dir())?;
+                    } else if ftype.is_file() {
+                        tree.replace(line, Entry::File)?;
+                    } else if ftype.is_symlink() {
+                        let target = fs::read_link(line)
+                            .unwrap_or_else(|_| PathBuf::from("[failed to read symlink target]"));
+                        tree.replace(line, Entry::Symlink(target))?;
+                    } else {
+                        unreachable!();
+                    }
+                } else {
+                    // failed to stat the path, just assume it's a file
+                    tree.replace(line, Entry::File)?;
+                }
+            } else {
+                tree.replace(line, Entry::File)?;
+            }
         }
         Ok(Self { tree, root: None })
     }
 
-    pub fn from_text_listing_path(path: impl AsRef<Path>) -> Result<Self, DirTreeError> {
+    pub fn from_text_listing_path(
+        path: impl AsRef<Path>,
+        check_fs: bool,
+    ) -> Result<Self, DirTreeError> {
         let path = path.as_ref();
         let text = if path == Path::new("-") {
             let mut s = String::new();
@@ -59,7 +87,7 @@ impl PineTree {
         } else {
             fs::read_to_string(path)?
         };
-        Self::from_text_listing(&text)
+        Self::from_text_listing(&text, check_fs)
     }
 
     /// Print our DirTree to a stream. For archives, we have to specify the name of the root node.

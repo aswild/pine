@@ -16,11 +16,11 @@ mod util;
 
 use crate::input::PineTree;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 enum InputMode {
     Path,
     Package,
-    TextList,
+    TextList(bool),
 }
 
 #[derive(Debug)]
@@ -72,6 +72,11 @@ fn parse_args() -> Args {
                 .conflicts_with("package")
                 .help("Read a newline-separated list of file and directory names"),
         )
+        .arg(Arg::with_name("check_filesystem").short("F").long("check-filesystem").help(
+            "When combined with --text-listing, look for file types and symlink targets by \
+             checking the files on disk. Note this will call lstat() on each line of input. \
+             Non-absolute paths will be resolved relative to the current working directory.",
+        ))
         .arg(
             Arg::with_name("input")
                 .required(true)
@@ -100,7 +105,7 @@ fn parse_args() -> Args {
     let input_mode = if m.is_present("package") {
         InputMode::Package
     } else if m.is_present("text_listing") {
-        InputMode::TextList
+        InputMode::TextList(m.is_present("check_filesystem"))
     } else {
         InputMode::Path
     };
@@ -149,7 +154,9 @@ fn run() -> Result<i32> {
                 }
             }
             InputMode::Path => PineTree::from_path(input).map_err(Into::into),
-            InputMode::TextList => PineTree::from_text_listing_path(input).map_err(Into::into),
+            InputMode::TextList(check_fs) => {
+                PineTree::from_text_listing_path(input, check_fs).map_err(Into::into)
+            }
         };
 
         match tree_ret {
