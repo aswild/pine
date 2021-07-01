@@ -10,7 +10,7 @@ members = ["libarchive"]
 [dependencies]
 anyhow = "1.0.41"
 atty = "0.2.14"
-clap = "2.33.3"
+clap = { version = "2.33", features = ["wrap_help"] }
 libarchive = { path = "./libarchive" }
 lscolors = { version = "0.7.1", default-features = false }
 termcolor = "1.1.2"
