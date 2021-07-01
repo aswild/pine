@@ -21,10 +21,6 @@ Linux or `libarchive-dev pkg-config` on Debian/Ubuntu.  You can also build libar
 and set the `PKG_CONFIG_PATH` environment variable when building with cargo.
 
 ## To Do List
-  * "plain text" input, e.g. the output of `find` or `tar -t` commands
-  * load package files for dpkg (pacman is now implemented)
-  * cache the parsed package manager database, rather than re-loading it for every separate package
-    specified on the command line.
   * filtering on entries to be included or excluded from the listing (including removing metadata
     files from pacman package lists)
   * add tests

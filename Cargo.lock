@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "libarchive"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "libc",
  "pkg-config",
@@ -81,7 +81,7 @@ checksum = "d24b894c45c9da468621cdd615a5a79ee5e5523dd4f75c76ebc03d458940c16e"
 
 [[package]]
 name = "pine"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "atty",
