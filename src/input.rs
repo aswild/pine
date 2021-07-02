@@ -26,12 +26,16 @@ impl PineTree {
     /// libarchive.
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, DirTreeError> {
         let path = path.as_ref();
-        let meta = std::fs::metadata(path)?;
 
-        let (tree, root) = if meta.is_dir() {
-            (read_from_filesystem(path)?, None)
+        let (tree, root) = if path == Path::new("-") {
+            (read_from_archive(io::stdin(), |_| true)?, None)
         } else {
-            (read_from_archive(path)?, Some(path.display().to_string()))
+            let meta = std::fs::metadata(path)?;
+            if meta.is_dir() {
+                (read_from_filesystem(path)?, None)
+            } else {
+                (read_from_archive_file(path, |_| true)?, Some(path.display().to_string()))
+            }
         };
         Ok(Self { tree, root })
     }
@@ -124,17 +128,18 @@ fn read_from_filesystem(path: &Path) -> DirTreeResult {
     Ok(dt)
 }
 
-/// Load a DirTree from the libarchive-supported archive file at `path`.
+/// Load a DirTree from the libarchive-supported archive stream returned by the reader.
 ///
 /// The `filter` function is called on the full path of every entry in the archive, if it returns
 /// false than that entry is skipped. No special handling is done to skip children of directories,
 /// the filter function must take care of that if needed.
-pub fn read_from_archive_with_filter<F>(path: &Path, filter: F) -> DirTreeResult
+pub fn read_from_archive<R, F>(reader: R, filter: F) -> DirTreeResult
 where
+    R: Read,
     F: Fn(&Path) -> bool,
 {
     let mut dt = DirTree::default();
-    let mut archive = ArchiveReader::new(File::open(path)?)?;
+    let mut archive = ArchiveReader::new(reader)?;
     loop {
         let entry = match archive.read_next_header() {
             Ok(Some(entry)) => entry,
@@ -164,7 +169,7 @@ where
             Entry::empty_dir()
         } else {
             eprintln!(
-                "Oh no: unknown type {:o} for entry '{}'",
+                "Oh no: unknown type {:#o} for entry '{}'",
                 entry.filetype(),
                 entry_path.display()
             );
@@ -177,7 +182,14 @@ where
     Ok(dt)
 }
 
-/// Load a DirTree from the libarchive-supported file at `path`.
-pub fn read_from_archive(path: &Path) -> DirTreeResult {
-    read_from_archive_with_filter(path, |_| true)
+/// Load a DirTree from the libarchive-supported archive file at path.
+///
+/// The `filter` works in the same way as [`read_from_archive_with_filter`]
+#[inline]
+pub fn read_from_archive_file<F>(path: &Path, filter: F) -> DirTreeResult
+where
+    F: Fn(&Path) -> bool,
+{
+    let file = File::open(path)?;
+    read_from_archive(file, filter)
 }

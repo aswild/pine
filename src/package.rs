@@ -113,7 +113,7 @@ impl PackageManager for Pacman {
             )
         };
 
-        let tree = input::read_from_archive_with_filter(&path.join("mtree"), path_filter)?;
+        let tree = input::read_from_archive_file(&path.join("mtree"), path_filter)?;
         Ok(Some(PineTree { tree, root: Some(real_name.into()) }))
     }
 }

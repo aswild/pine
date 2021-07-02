@@ -81,7 +81,7 @@ fn parse_args() -> Args {
             Arg::with_name("input")
                 .required(true)
                 .multiple(true)
-                .help("path to directory, archive file, or package name"),
+                .help("path to directory, archive file, or package name. Use '-' to read stdin."),
         )
         .get_matches();
 
