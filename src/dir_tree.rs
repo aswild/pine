@@ -16,6 +16,7 @@ pub type DirTreeResult = Result<DirTree, DirTreeError>;
 #[derive(Debug)]
 pub enum Entry {
     File,
+    ExecFile,
     Symlink(PathBuf),
     Directory(DirTree),
 }
@@ -43,7 +44,8 @@ impl Entry {
                 // we can't create a std::fs::Metadata, but passing None makes lscolors assume
                 // a regular file to be styled by file extension
                 Entry::File => color.style_for_path_with_metadata(name, None),
-                // for symlinks and directories, get a style based on that indicator type
+                // for executable files, symlinks and dirs, get a style based on indicator type
+                Entry::ExecFile => color.style_for_indicator(Indicator::ExecutableFile),
                 Entry::Symlink(_) => color.style_for_indicator(Indicator::SymbolicLink),
                 Entry::Directory(_) => color.style_for_indicator(Indicator::Directory),
             }

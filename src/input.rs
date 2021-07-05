@@ -1,8 +1,9 @@
 // Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::fs::{self, File};
+use std::fs::{self, File, Metadata};
 use std::io::{self, Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use libarchive::ArchiveReader;
@@ -11,6 +12,13 @@ use termcolor::WriteColor;
 use walkdir::WalkDir;
 
 use crate::dir_tree::{DirTree, DirTreeError, DirTreeResult, Entry};
+
+/// Check whether a file's metadata is executable, i.e. whether any of the bits in
+/// `S_IXUSR | S_IXGRP | S_IXOTH` are set.
+#[inline]
+fn is_executable(meta: &Metadata) -> bool {
+    (meta.permissions().mode() & 0o111) != 0
+}
 
 /// The parsed directory tree, optionally with a custom root node name (if root is None, then tree
 /// usually has only one top-level directory entry)
@@ -57,10 +65,12 @@ impl PineTree {
                 // try to stat the path and figure out what sort of file/entry it is
                 if let Ok(meta) = fs::symlink_metadata(line) {
                     let ftype = meta.file_type();
-                    if ftype.is_dir() {
+                    if ftype.is_file() {
+                        let tree_entry =
+                            if is_executable(&meta) { Entry::ExecFile } else { Entry::File };
+                        tree.replace(line, tree_entry)?;
+                    } else if ftype.is_dir() {
                         tree.replace(line, Entry::empty_dir())?;
-                    } else if ftype.is_file() {
-                        tree.replace(line, Entry::File)?;
                     } else if ftype.is_symlink() {
                         let target = fs::read_link(line)
                             .unwrap_or_else(|_| PathBuf::from("[failed to read symlink target]"));
@@ -113,7 +123,15 @@ fn read_from_filesystem(path: &Path) -> DirTreeResult {
 
         let filetype = entry.file_type();
         let tree_entry = if filetype.is_file() {
-            Entry::File
+            if let Ok(meta) = entry.metadata() {
+                if is_executable(&meta) {
+                    Entry::ExecFile
+                } else {
+                    Entry::File
+                }
+            } else {
+                Entry::File
+            }
         } else if filetype.is_symlink() {
             Entry::Symlink(PathBuf::from(entry.file_name()))
         } else if filetype.is_dir() {
@@ -155,7 +173,9 @@ where
             continue;
         }
 
-        let tree_entry = if entry.is_file() {
+        let tree_entry = if entry.is_exec_file() {
+            Entry::ExecFile
+        } else if entry.is_file() {
             Entry::File
         } else if entry.is_symlink() {
             let symlink_path = entry.symlink_path().ok_or_else(|| {
