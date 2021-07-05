@@ -131,8 +131,16 @@ impl ArchiveEntry {
         unsafe { ffi::archive_entry_filetype(self.ptr) }
     }
 
+    pub fn fileperm(&self) -> u32 {
+        unsafe { ffi::archive_entry_perm(self.ptr) }
+    }
+
     pub fn is_file(&self) -> bool {
         self.filetype() == ffi::AE_IFREG
+    }
+
+    pub fn is_exec_file(&self) -> bool {
+        self.is_file() && ((self.fileperm() & 0o111) != 0)
     }
 
     pub fn is_dir(&self) -> bool {
