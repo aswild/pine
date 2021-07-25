@@ -39,11 +39,12 @@ impl PineTree {
             (read_from_archive(io::stdin(), |_| true)?, None)
         } else {
             let meta = std::fs::metadata(path)?;
-            if meta.is_dir() {
-                (read_from_filesystem(path)?, None)
+            let tree = if meta.is_dir() {
+                read_from_filesystem(path)?
             } else {
-                (read_from_archive_file(path, |_| true)?, Some(path.display().to_string()))
-            }
+                read_from_archive_file(path, |_| true)?
+            };
+            (tree, Some(path.display().to_string()))
         };
         Ok(Self { tree, root })
     }
@@ -117,8 +118,10 @@ impl PineTree {
 }
 
 fn read_from_filesystem(path: &Path) -> DirTreeResult {
+    let abs_path = path.canonicalize()?;
     let mut dt = DirTree::default();
-    for entry in WalkDir::new(path).min_depth(1) {
+
+    for entry in WalkDir::new(&abs_path).min_depth(1) {
         let entry = entry.map_err(|e| DirTreeError::IOError(e.into()))?;
 
         let filetype = entry.file_type();
@@ -140,7 +143,19 @@ fn read_from_filesystem(path: &Path) -> DirTreeResult {
             unreachable!()
         };
 
-        dt.insert(entry.path(), tree_entry)?;
+        // since we gave walkdir an absolute path, all the entries will have absolute paths too.
+        // Strip off the original path prefix and only include subdirectories in the tree.
+        let rela_path = entry.path().strip_prefix(&abs_path).unwrap_or_else(|_| {
+            // ugly warning, but I want details if this fails (because it should always work)
+            let entry_path = entry.path();
+            eprintln!(
+                "WARNING: failed to strip abs_path prefix '{}' from entry path '{}'",
+                abs_path.display(),
+                entry_path.display(),
+            );
+            entry_path
+        });
+        dt.insert(rela_path, tree_entry)?;
     }
 
     Ok(dt)
