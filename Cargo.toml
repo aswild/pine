@@ -1,6 +1,6 @@
 [package]
 name = "pine"
-version = "0.4.2"
+version = "0.5.0"
 authors = ["Allen Wild <allenwild93@gmail.com>"]
 edition = "2018"
 
