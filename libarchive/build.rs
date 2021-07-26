@@ -36,10 +36,11 @@ fn main() {
     }
 
     // none of the above methods worked, print a useful message and bail.
-    eprintln!("No libarchive.so or libarchive.a found in the local `pine` or `pine/libarchive`\n\
-               directories. Either install the libarchive-dev and pkg-config packages, or create a \
-               `libarchive.so` or `libarchive.a` symlink in the current directory pointing to a \
-               suitable library file.");
+    eprintln!(
+        "No libarchive.so or libarchive.a found in the local `pine` or `pine/libarchive` directories.\n\
+        Either install the libarchive-dev and pkg-config packages, or create a `libarchive.so` or \
+        `libarchive.a` symlink in the current directory pointing to a suitable library file."
+    );
 
     std::process::exit(1);
 }
@@ -63,5 +64,5 @@ fn check_local_libarchive(dir: &Path) -> bool {
         return true;
     }
 
-    return false;
+    false
 }
