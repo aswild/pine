@@ -87,6 +87,7 @@ dependencies = [
  "atty",
  "clap",
  "libarchive",
+ "libc",
  "lscolors",
  "termcolor",
  "thiserror",

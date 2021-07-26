@@ -1,11 +1,16 @@
 // Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+use std::env;
 use std::ffi::OsString;
 use std::io::{self, Write};
+use std::os::unix::io::AsRawFd;
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::{crate_version, App, AppSettings, Arg};
+use libc::c_int;
 use lscolors::LsColors;
 use termcolor::{ColorChoice, StandardStream};
 
@@ -26,6 +31,7 @@ enum InputMode {
 #[derive(Debug)]
 struct Args {
     color_choice: ColorChoice,
+    pager: bool,
     input_mode: InputMode,
     inputs: Vec<OsString>,
 }
@@ -60,6 +66,13 @@ fn parse_args() -> Args {
                 .short("C")
                 .overrides_with("color")
                 .help("alias for --color=always"),
+        )
+        .arg(
+            Arg::with_name("pager")
+                .short("P")
+                .long("pager")
+                .takes_value(false)
+                .help("Send output to a pager, either $PINE_PAGER, $PAGER, or `less`"),
         )
         .arg(Arg::with_name("package").short("p").long("package").help(
             "List contents of the named Linux packages rather than archives or directories.\n\
@@ -112,6 +125,7 @@ fn parse_args() -> Args {
 
     Args {
         color_choice,
+        pager: m.is_present("pager"),
         input_mode,
         inputs: m.values_of_os("input").unwrap().map(OsString::from).collect(),
     }
@@ -123,6 +137,10 @@ fn run() -> Result<i32> {
 
     let args = parse_args();
     let color = LsColors::from_env().unwrap_or_default();
+
+    // evil stdout redirection into a pager process
+    let pager_redirect = if args.pager { Some(PagerOutputRedirect::spawn()?) } else { None };
+
     let stdout = StandardStream::stdout(args.color_choice);
     let mut stdout_lock = stdout.lock();
 
@@ -168,6 +186,12 @@ fn run() -> Result<i32> {
         }
     }
 
+    if let Some(mut p) = pager_redirect {
+        // flush the output buffer before pager_redirect is dropped and waits for the pager process
+        let _ = stdout_lock.flush();
+        p.wait()?;
+    }
+
     Ok(error_count)
 }
 
@@ -188,6 +212,108 @@ fn main() {
         Err(e) => {
             eprintln!("Error: {:#}", e);
             std::process::exit(1);
+        }
+    }
+}
+
+/// Evil (lazy) stdout redirect hackery. Termcolor doesn't have public APIs like StandardStream
+/// that accept ColorChoice and do that logic, only Ansi (writer that always colors) or NoColor
+/// (writer that never colors). So either we add two layers of abstraction and reimplement
+/// termcolor's ColorChoice logic, or we do some hacks.
+///
+/// Here, we have the hacks. Creating a PagerOutputRedirect spawns a child process, and then
+/// redirects stdout (file descriptor 1) to the write side of that child's pipe, all writes to
+/// stdout (TODO stderr too) will go to the pager process.
+///
+/// When the PagerOutputRedirect is dropped (or the close() method is called), we restore the
+/// original stdout and wait for the pager process to exit.
+///
+/// This is evil because it globally affects the entire process, but it works. There's unsafe code
+/// for the libc calls, but we're only messing with file descriptors so there's no meaningful
+/// memory safety risks.
+struct PagerOutputRedirect {
+    child: Child,
+    saved_stdout_fd: Option<c_int>,
+}
+
+impl Drop for PagerOutputRedirect {
+    fn drop(&mut self) {
+        if let Err(e) = self.wait() {
+            eprintln!("Error: failed to wait for pager during drop: {:#}", e);
+        }
+    }
+}
+
+impl PagerOutputRedirect {
+    fn spawn() -> Result<Self> {
+        // what pager should we use?
+        let pager = env::var_os("PINE_PAGER")
+            .unwrap_or_else(|| env::var_os("PAGER").unwrap_or_else(|| "less".into()));
+
+        // Spawn the pager as a child process. Do this before fiddling with our own file
+        // descriptors below so that the pager process doesn't inherit any extras.
+        let mut cmd = Command::new(&pager);
+        cmd.stdin(Stdio::piped());
+        if Path::new(&pager).file_stem().map(|s| s.to_str()) == Some(Some("less")) {
+            // for less, enable the option to quit on one screen of text (buggy before less version
+            // 530, but ignore that and assume a reasonably recent less version)
+            cmd.arg("--quit-if-one-screen");
+        }
+        let child = cmd
+            .spawn()
+            .with_context(|| format!("Failed to spawn pager '{}'", pager.to_string_lossy()))?;
+
+        // and now for the evil part: rather than reimplementing a bunch of internal termcolor code
+        // from ColorChoice and StandardStream to handle whether or not to use or ignore output, we
+        // just use dup2 to redirect all of our stdout to this new child process!
+        // This is unsafe because of the libc FFI calls, but we're just throwing around file
+        // descriptors so this can't really cause memory safety issues.
+        //
+        // First, dup the current stdout to a new file descriptor so we can restore it later
+        let saved_stdout_fd = match unsafe { libc::dup(libc::STDOUT_FILENO) } {
+            -1 => {
+                eprintln!("Error: failed to dup() stdout");
+                None
+            }
+            fd => Some(fd),
+        };
+
+        // now, get the child's stdin file descriptor (the write end of our pipe) and dup it to
+        // stdout, so that all further stdout writes from Rust code are sent to the pager
+        let ret =
+            unsafe { libc::dup2(child.stdin.as_ref().unwrap().as_raw_fd(), libc::STDOUT_FILENO) };
+        if ret == -1 {
+            eprintln!("Error: failed to dup2() the pager's stdin to our stdout");
+        }
+
+        Ok(Self { child, saved_stdout_fd })
+    }
+
+    fn wait(&mut self) -> Result<()> {
+        // At this point we have two file descriptors that both point to out write end of the
+        // child's stdin pipe, whatever fd is inside the Child struct (from when process::Command
+        // ran pipe() initially), and our current stdout fd (1) that we dup'd to a copy of it.
+        // We must close both of those before waiting for the pager process to exit (so that the
+        // pager knows it's done reading).
+        if let Some(fd) = self.saved_stdout_fd {
+            // restore our backup, which will close the current stdout
+            let ret = unsafe { libc::dup2(fd, libc::STDOUT_FILENO) };
+            if ret == -1 {
+                eprintln!("Error: failed to dup2() to restore the original stdout {}", fd);
+            }
+            // close the backup fd and clear it out
+            if unsafe { libc::close(fd) } == -1 {
+                eprintln!("Error: failed to close stdout backup fd {}", fd);
+            }
+            self.saved_stdout_fd = None;
+        }
+
+        // now wait for the child process, this will automatically close child.stdin before waiting
+        let status = self.child.wait().context("failed to wait for pager process")?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(anyhow!("pager process returned {}", status))
         }
     }
 }
