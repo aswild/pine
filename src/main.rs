@@ -180,7 +180,12 @@ fn run() -> Result<i32> {
         match tree_ret {
             Ok(tree) => tree.print(&mut stdout_lock, &color)?,
             Err(e) => {
-                eprintln!("Error: {}: {:#}", input.to_string_lossy(), e);
+                let input_name = if input == "-" {
+                    std::borrow::Cow::Borrowed("[stdin]")
+                } else {
+                    input.to_string_lossy()
+                };
+                eprintln!("Error: {}: {:#}", input_name, e);
                 error_count += 1;
             }
         }

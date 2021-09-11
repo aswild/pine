@@ -163,6 +163,20 @@ impl DirTree {
         new_entry: Entry,
         replace: bool,
     ) -> Result<(), DirTreeError> {
+        match path.components().last() {
+            // Normally Rust ignores trailing slashes and '.'s like "/foo/bar/.", but when there's
+            // no normal component in front (e.g. "./", "/.", or "/"), things get dicey. Just skip
+            // those entries entirely because there's no good way to insert them into the tree.
+            // Also ignore empty paths, which is unexpected.
+            None | Some(Component::Prefix(_) | Component::RootDir | Component::CurDir) => {
+                return Ok(())
+            }
+            // For paths ending in '..', bail early since '..' isn't supported in DirTree paths and
+            // the trailing .. won't get picked up by the iterator over dirname below.
+            Some(Component::ParentDir) => return Err(DirTreeError::InvalidPath(path.into())),
+            Some(Component::Normal(_)) => (),
+        }
+
         let mut cur = self;
         if let Some(dir) = dirname(path) {
             for (i, comp) in dir.components().enumerate() {
@@ -200,7 +214,13 @@ impl DirTree {
         }
 
         // now cur is the DirTree that we'll add the final path component to it
-        let new_name = PathBuf::from(path.file_name().unwrap());
+        let new_name = path.file_name().map(PathBuf::from).ok_or_else(|| {
+            // The checks above should make this unreachable, but it's nicer to return an error
+            // here with the offending path than panic with an unwrap.
+            eprintln!("Error: unexpected invalid path with no file_name");
+            DirTreeError::InvalidPath(path.into())
+        })?;
+
         if replace {
             cur.0.insert(new_name, new_entry);
         } else if let BTreeEntry::Vacant(slot) = cur.0.entry(new_name) {

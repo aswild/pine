@@ -54,7 +54,8 @@ impl PineTree {
     /// an intermediate path component is assumed to be a directory.
     pub fn from_text_listing(list: &str, check_fs: bool) -> Result<Self, DirTreeError> {
         let mut tree = DirTree::default();
-        for line in list.lines() {
+        // strip leading/trailing whitespace from lines and skip blanks
+        for line in list.lines().map(str::trim).filter(|s| !s.is_empty()) {
             // when reading filenames from text, we can't know in advanced whether it's supposed
             // to be a file or directory, so assume everything is a file at first, replacing them
             // with directories as needed.
