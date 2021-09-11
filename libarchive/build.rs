@@ -31,7 +31,7 @@ fn main() {
 
     // look for libarchive in the top-level pine directory
     let pinedir = mydir.parent().unwrap();
-    if check_local_libarchive(&pinedir) {
+    if check_local_libarchive(pinedir) {
         return;
     }
 

@@ -67,7 +67,7 @@ impl Entry {
         if let Entry::Symlink(target) = self {
             // cheat slightly by recursively calling this function
             write!(w, " -> ")?;
-            Entry::File.write_styled_name(w, &target, color)?;
+            Entry::File.write_styled_name(w, target, color)?;
         }
 
         Ok(())

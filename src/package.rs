@@ -322,7 +322,7 @@ impl PackageManager for Dpkg {
         // it shows up.
         let list_text = list_contents.strip_prefix("/.\n").unwrap_or(&list_contents);
 
-        let mut tree = PineTree::from_text_listing(&list_text, true)?;
+        let mut tree = PineTree::from_text_listing(list_text, true)?;
         tree.root = Some(real_name.into());
         Ok(Some(tree))
     }
