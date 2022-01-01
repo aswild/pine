@@ -50,11 +50,9 @@ fn parse_args() -> Args {
             )
             .as_str(),
         )
-        .setting(AppSettings::ColoredHelp)
         .setting(AppSettings::DeriveDisplayOrder)
-        .setting(AppSettings::UnifiedHelpMessage)
         .arg(
-            Arg::with_name("color")
+            Arg::new("color")
                 .long("color")
                 .takes_value(true)
                 .possible_values(&["auto", "always", "never"])
@@ -62,38 +60,39 @@ fn parse_args() -> Args {
                 .help("enable terminal colors"),
         )
         .arg(
-            Arg::with_name("always_color")
-                .short("C")
+            Arg::new("always_color")
+                .short('C')
                 .overrides_with("color")
                 .help("alias for --color=always"),
         )
         .arg(
-            Arg::with_name("pager")
-                .short("P")
+            Arg::new("pager")
+                .short('P')
                 .long("pager")
                 .takes_value(false)
                 .help("Send output to a pager, either $PINE_PAGER, $PAGER, or `less`"),
         )
-        .arg(Arg::with_name("package").short("p").long("package").help(
+        .arg(Arg::new("package").short('p').long("package").help(
             "List contents of the named Linux packages rather than archives or directories.\n\
             Currently supported package managers: pacman, dpkg",
         ))
         .arg(
-            Arg::with_name("text_listing")
-                .short("t")
+            Arg::new("text_listing")
+                .short('t')
                 .long("text-listing")
                 .conflicts_with("package")
                 .help("Read a newline-separated list of file and directory names"),
         )
-        .arg(Arg::with_name("check_filesystem").short("F").long("check-filesystem").help(
+        .arg(Arg::new("check_filesystem").short('F').long("check-filesystem").help(
             "When combined with --text-listing, look for file types and symlink targets by \
              checking the files on disk. Note this will call lstat() on each line of input. \
              Non-absolute paths will be resolved relative to the current working directory.",
         ))
         .arg(
-            Arg::with_name("input")
+            Arg::new("input")
                 .required(true)
-                .multiple(true)
+                .multiple_values(true)
+                .allow_invalid_utf8(true)
                 .help("path to directory, archive file, or package name. Use '-' to read stdin."),
         )
         .get_matches();
