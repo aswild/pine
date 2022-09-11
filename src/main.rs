@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
 use anyhow::{anyhow, Context, Result};
-use clap::{crate_version, App, AppSettings, Arg};
+use clap::{crate_version, value_parser, AppSettings, Arg};
 use libc::c_int;
 use lscolors::LsColors;
 use termcolor::{ColorChoice, StandardStream};
@@ -37,7 +37,7 @@ struct Args {
 }
 
 fn parse_args() -> Args {
-    let m = App::new("pine")
+    let m = clap::Command::new("pine")
         .about("Print lists of files as a tree.")
         .version(crate_version!())
         .long_version(
@@ -55,7 +55,7 @@ fn parse_args() -> Args {
             Arg::new("color")
                 .long("color")
                 .takes_value(true)
-                .possible_values(&["auto", "always", "never"])
+                .value_parser(["auto", "always", "never"])
                 .default_value("auto")
                 .help("enable terminal colors"),
         )
@@ -92,15 +92,15 @@ fn parse_args() -> Args {
             Arg::new("input")
                 .required(true)
                 .multiple_values(true)
-                .allow_invalid_utf8(true)
+                .value_parser(value_parser!(OsString))
                 .help("path to directory, archive file, or package name. Use '-' to read stdin."),
         )
         .get_matches();
 
-    let color_choice = if m.is_present("always_color") {
+    let color_choice = if m.contains_id("always_color") {
         ColorChoice::Always
     } else {
-        match m.value_of("color") {
+        match m.get_one("color").map(String::as_str) {
             Some("always") => ColorChoice::Always,
             Some("never") => ColorChoice::Never,
             Some("auto") => {
@@ -114,19 +114,19 @@ fn parse_args() -> Args {
         }
     };
 
-    let input_mode = if m.is_present("package") {
+    let input_mode = if m.contains_id("package") {
         InputMode::Package
-    } else if m.is_present("text_listing") {
-        InputMode::TextList(m.is_present("check_filesystem"))
+    } else if m.contains_id("text_listing") {
+        InputMode::TextList(m.contains_id("check_filesystem"))
     } else {
         InputMode::Path
     };
 
     Args {
         color_choice,
-        pager: m.is_present("pager"),
+        pager: m.contains_id("pager"),
         input_mode,
-        inputs: m.values_of_os("input").unwrap().map(OsString::from).collect(),
+        inputs: m.get_many("input").unwrap().cloned().collect(),
     }
 }
 
