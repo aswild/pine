@@ -205,11 +205,11 @@ where
             Entry::empty_dir()
         } else {
             eprintln!(
-                "Oh no: unknown type {:#o} for entry '{}'",
+                "warning: unknown type/mode {:03o} for entry '{}', assuming File",
                 entry.filetype(),
                 entry_path.display()
             );
-            unreachable!()
+            Entry::File
         };
 
         dt.insert(entry_path, tree_entry)?;
