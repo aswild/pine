@@ -13,7 +13,7 @@ atty = "0.2"
 clap = { version = "3.2", features = ["cargo", "deprecated", "wrap_help"] }
 libarchive = { path = "./libarchive" }
 libc = "0.2"
-lscolors = { version = "0.7", default-features = false }
+lscolors = { version = "0.12", default-features = false }
 termcolor = "1.1"
 thiserror = "1.0"
 walkdir = "2.3"

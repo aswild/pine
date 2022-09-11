@@ -25,14 +25,14 @@ impl ToColor for lscolors::style::Color {
         use lscolors::style::Color::*;
         use termcolor::Color;
         match *self {
-            Black => Color::Black,
-            Red => Color::Red,
-            Green => Color::Green,
-            Yellow => Color::Yellow,
-            Blue => Color::Blue,
-            Magenta => Color::Magenta,
-            Cyan => Color::Cyan,
-            White => Color::White,
+            Black | BrightBlack => Color::Black,
+            Red | BrightRed => Color::Red,
+            Green | BrightGreen => Color::Green,
+            Yellow | BrightYellow => Color::Yellow,
+            Blue | BrightBlue => Color::Blue,
+            Magenta | BrightMagenta => Color::Magenta,
+            Cyan | BrightCyan => Color::Cyan,
+            White | BrightWhite => Color::White,
             Fixed(x) => Color::Ansi256(x),
             RGB(r, g, b) => Color::Rgb(r, g, b),
         }
