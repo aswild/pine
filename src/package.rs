@@ -279,7 +279,7 @@ impl Dpkg {
                             // Provides: c++-compiler, g++-x86-64-linux-gnu (= 4:9.3.0-1ubuntu2)
                             // Split on ", " and then stop at the first space to remove the
                             // parenthesized version info
-                            let end = alias.find(' ').unwrap_or_else(|| alias.len());
+                            let end = alias.find(' ').unwrap_or(alias.len());
                             current.provides.push(alias[..end].to_owned());
                         }
                     }
