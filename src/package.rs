@@ -148,7 +148,7 @@ impl PacmanPackageDesc {
 
         // read the whole desc file in one shot (it's fairly small) rather than unwrapping results
         // for reading one line at a time.
-        for line in fs::read_to_string(&desc_path)?.lines() {
+        for line in fs::read_to_string(desc_path)?.lines() {
             match state {
                 State::FindSection => match line {
                     "%NAME%" => state = State::ReadName,
