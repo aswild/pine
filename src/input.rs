@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::fs::{self, File, Metadata};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -172,8 +172,33 @@ where
     R: Read,
     F: Fn(&Path) -> bool,
 {
+    impl_read_from_archive(ArchiveReader::new(reader)?, filter)
+}
+
+/// Load a DirTree from the libarchive-supported archive file at path.
+///
+/// The `filter` works in the same way as [`read_from_archive_with_filter`]
+pub fn read_from_archive_file<F>(path: &Path, filter: F) -> DirTreeResult
+where
+    F: Fn(&Path) -> bool,
+{
+    let mut file = File::open(path)?;
+
+    // Attempt a no-op seek on the file. If it succeeds, use a seekable archive reader, which is
+    // needed for some formats like 7-zip.
+    #[allow(clippy::seek_from_current)]
+    match file.seek(SeekFrom::Current(0)) {
+        Ok(_) => impl_read_from_archive(ArchiveReader::new_seekable(file)?, filter),
+        Err(_) => impl_read_from_archive(ArchiveReader::new(file)?, filter),
+    }
+}
+
+fn impl_read_from_archive<R, F>(mut archive: ArchiveReader<R>, filter: F) -> DirTreeResult
+where
+    R: Read,
+    F: Fn(&Path) -> bool,
+{
     let mut dt = DirTree::default();
-    let mut archive = ArchiveReader::new(reader)?;
     loop {
         let entry = match archive.read_next_header() {
             Ok(Some(entry)) => entry,
@@ -216,16 +241,4 @@ where
     }
 
     Ok(dt)
-}
-
-/// Load a DirTree from the libarchive-supported archive file at path.
-///
-/// The `filter` works in the same way as [`read_from_archive_with_filter`]
-#[inline]
-pub fn read_from_archive_file<F>(path: &Path, filter: F) -> DirTreeResult
-where
-    F: Fn(&Path) -> bool,
-{
-    let file = File::open(path)?;
-    read_from_archive(file, filter)
 }

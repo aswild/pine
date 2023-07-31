@@ -12,8 +12,8 @@
 use std::borrow::Borrow;
 use std::ffi::{CStr, OsStr};
 use std::fmt;
-use std::io::Read;
-use std::os::raw::{c_char, c_void};
+use std::io::{Read, Seek, SeekFrom};
+use std::os::raw::{c_char, c_int, c_void};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -289,9 +289,17 @@ impl<R: Read> ArchiveReader<R> {
 
     /// Create a new ArchiveReader wrapping the given reader.
     ///
-    /// May panic if `archive_read_new` fails, which shouldn't happen in normal operation and
+    /// May fail if `archive_read_new` fails, which shouldn't happen in normal operation and
     /// probably indicates OOM.
     pub fn new(reader: R) -> Result<Self, ArchiveError> {
+        let mut ar = Self::alloc(reader)?;
+        unsafe { ar.open()? };
+        Ok(ar)
+    }
+
+    /// Allocate an ArchiveReader and the internal libarchive structures, but don't open an archive
+    /// just yet. Should be followed by a call to Self::open()
+    fn alloc(reader: R) -> Result<Self, ArchiveError> {
         // allocate the struct archive
         let archive_ptr = unsafe { ffi::archive_read_new() };
         if archive_ptr.is_null() {
@@ -304,9 +312,7 @@ impl<R: Read> ArchiveReader<R> {
 
         let read_inner = ReadInner::new_pinned(reader, DEFAULT_BUF_SIZE);
         // SAFETY: ptr came from archive_read_new as it should, and we checked that it's not null.
-        let mut ar = Self { ptr: archive_ptr, read_inner, entry: ArchiveEntry::new() };
-        unsafe { ar.open()? };
-        Ok(ar)
+        Ok(Self { ptr: archive_ptr, read_inner, entry: ArchiveEntry::new() })
     }
 
     /// Enable all libarchive formats and filters, and open the archive. This must be run at the
@@ -360,6 +366,70 @@ impl<R: Read> ArchiveReader<R> {
 
     pub fn last_error(&mut self) -> ArchiveError {
         unsafe { ArchiveError::from_archive(self.ptr) }
+    }
+}
+
+impl<R: Read + Seek> ArchiveReader<R> {
+    /// seek callback for an archive reader. See general safety notes on read_callback.
+    ///
+    /// Note that unlike read_callback, we must return ARCHIVE_FATAL instead of -1 on failure
+    /// according to the comments in archive.h.
+    #[allow(unsafe_op_in_unsafe_fn)]
+    unsafe extern "C" fn seek_callback(
+        archive: *mut ffi::archive,
+        data: *mut c_void,
+        offset: ffi::la_int64_t,
+        whence: c_int,
+    ) -> ffi::la_int64_t {
+        // get a pointer to the readinner, which is behind a Pin<Box<ReadInner<R>>>
+        let ri: *mut ReadInner<R> = data as *mut _;
+
+        let pos = match whence {
+            libc::SEEK_SET => SeekFrom::Start(offset as u64),
+            libc::SEEK_CUR => SeekFrom::Current(offset),
+            libc::SEEK_END => SeekFrom::End(offset),
+            other => {
+                // this probably indicates a bug in libarchive
+                let fmt = CStr::from_bytes_with_nul(b"invalid seek whence %d\0").unwrap();
+                ffi::archive_set_error(archive, libc::EINVAL, fmt.as_ptr(), other);
+                return ffi::ARCHIVE_FATAL.into();
+            }
+        };
+
+        // Deref raw pointer to get a ReadInner, then seek it. Seek returns a u64, make sure it
+        // fits into an i64.
+        match (*ri).reader.seek(pos).map(i64::try_from) {
+            // success
+            Ok(Ok(newpos)) => newpos as ffi::la_int64_t,
+            // seek succeeded, but we can't represent the new position as i64
+            Ok(Err(_)) => {
+                let msg =
+                    CStr::from_bytes_with_nul(b"Seek position greater than i64::MAX\0").unwrap();
+                ffi::archive_set_error(archive, libc::ERANGE, msg.as_ptr());
+                ffi::ARCHIVE_FATAL.into()
+            }
+            // the seek itself failed
+            Err(err) => {
+                let errno = err.raw_os_error().unwrap_or(libc::EINVAL);
+                let msg = CStr::from_bytes_with_nul(b"error seeking archive file\0").unwrap();
+                ffi::archive_set_error(archive, errno, msg.as_ptr());
+                ffi::ARCHIVE_FATAL.into()
+            }
+        }
+    }
+
+    pub fn new_seekable(reader: R) -> Result<Self, ArchiveError> {
+        let mut ar = Self::alloc(reader)?;
+        // we must set the seek callback before opening an archive
+        // SAFETY: ar.ptr is constructed as a valid struct archive*
+        let ret = unsafe { ffi::archive_read_set_seek_callback(ar.ptr, Some(Self::seek_callback)) };
+        if ret != ffi::ARCHIVE_OK {
+            return Err(ar.last_error().context("failed to register seek callback"));
+        }
+
+        // SAFETY: ar was just created and we only call open once on it
+        unsafe { ar.open()? };
+        Ok(ar)
     }
 }
 
