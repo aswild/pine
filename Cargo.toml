@@ -2,7 +2,7 @@
 name = "pine"
 version = "0.6.0"
 authors = ["Allen Wild <allenwild93@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [workspace]
 members = ["libarchive"]
