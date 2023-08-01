@@ -8,11 +8,11 @@ edition = "2021"
 members = ["libarchive"]
 
 [dependencies]
-anyhow = "1.0"
+anyhow = "1.0.72"
 clap = { version = "4.3", features = ["cargo", "deprecated", "wrap_help"] }
 libarchive = { path = "./libarchive" }
 libc = "0.2"
 lscolors = { version = "0.15", default-features = false }
-termcolor = "1.1"
-thiserror = "1.0"
+termcolor = "1.2"
+thiserror = "1.0.44"
 walkdir = "2.3"
