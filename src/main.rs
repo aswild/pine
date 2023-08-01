@@ -3,13 +3,13 @@
 
 use std::env;
 use std::ffi::OsString;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
 use anyhow::{anyhow, Context, Result};
-use clap::{crate_version, value_parser, AppSettings, Arg};
+use clap::{crate_version, value_parser, Arg, ArgAction};
 use libc::c_int;
 use lscolors::LsColors;
 use termcolor::{ColorChoice, StandardStream};
@@ -37,74 +37,85 @@ struct Args {
 }
 
 fn parse_args() -> Args {
-    let m = clap::Command::new("pine")
+    let mut m = clap::Command::new("pine")
         .about("Print lists of files as a tree.")
         .version(crate_version!())
-        .long_version(
-            format!(
-                "{}\n\
-                Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>\n\
-                This is free software; you are free to change and redistribute it.\n\
-                There is NO WARRANTY, to the extent permitted by law.",
-                crate_version!()
-            )
-            .as_str(),
-        )
-        .setting(AppSettings::DeriveDisplayOrder)
+        .long_version(concat!(
+            crate_version!(),
+            "\n\
+            Copyright (c) 2021 Allen Wild <allenwild93@gmail.com>\n\
+            This is free software; you are free to change and redistribute it.\n\
+            There is NO WARRANTY, to the extent permitted by law."
+        ))
         .arg(
             Arg::new("color")
                 .long("color")
-                .takes_value(true)
                 .value_parser(["auto", "always", "never"])
                 .default_value("auto")
-                .help("enable terminal colors"),
+                .help("Enable terminal colors."),
         )
         .arg(
             Arg::new("always_color")
                 .short('C')
+                .long("always-color")
                 .overrides_with("color")
-                .help("alias for --color=always"),
+                .action(ArgAction::SetTrue)
+                .help("Alias for --color=always."),
         )
         .arg(
             Arg::new("pager")
                 .short('P')
                 .long("pager")
-                .takes_value(false)
-                .help("Send output to a pager, either $PINE_PAGER, $PAGER, or `less`"),
+                .action(ArgAction::SetTrue)
+                .help("Send output to a pager, either $PINE_PAGER, $PAGER, or `less`."),
         )
-        .arg(Arg::new("package").short('p').long("package").help(
-            "List contents of the named Linux packages rather than archives or directories.\n\
-            Currently supported package managers: pacman, dpkg",
+        .arg(
+            Arg::new("package")
+                .short('p')
+                .long("package")
+                .action(ArgAction::SetTrue)
+                .help("List contents of Linux packages rather than archives or directories")
+                .long_help(
+                    "List contents of the Linux packages rather than archives or directories.\n\
+                    Currently supported package managers are pacman and dpkg.",
         ))
         .arg(
             Arg::new("text_listing")
                 .short('t')
                 .long("text-listing")
+                .action(ArgAction::SetTrue)
                 .conflicts_with("package")
-                .help("Read a newline-separated list of file and directory names"),
+                .help("Read a newline-separated list of file and directory names."),
         )
-        .arg(Arg::new("check_filesystem").short('F').long("check-filesystem").help(
-            "When combined with --text-listing, look for file types and symlink targets by \
-             checking the files on disk. Note this will call lstat() on each line of input. \
-             Non-absolute paths will be resolved relative to the current working directory.",
+        .arg(
+            Arg::new("check_filesystem")
+                .short('F')
+                .long("check-filesystem")
+                .action(ArgAction::SetTrue)
+                .requires("text_listing")
+                .help("Check for files on disk when loading a text listing.")
+                .long_help(
+                    "When combined with --text-listing, look for file types and symlink targets by \
+                     checking the files on disk. Note this will call lstat() on each line of input. \
+                     Non-absolute paths will be resolved relative to the current working directory.",
         ))
         .arg(
             Arg::new("input")
                 .required(true)
-                .multiple_values(true)
+                .action(ArgAction::Append)
                 .value_parser(value_parser!(OsString))
                 .help("path to directory, archive file, or package name. Use '-' to read stdin."),
         )
         .get_matches();
 
-    let color_choice = if m.contains_id("always_color") {
+    let color_choice = if m.get_flag("always_color") {
         ColorChoice::Always
     } else {
         match m.get_one("color").map(String::as_str) {
             Some("always") => ColorChoice::Always,
             Some("never") => ColorChoice::Never,
             Some("auto") => {
-                if atty::is(atty::Stream::Stdout) {
+                if io::stdout().is_terminal() {
                     ColorChoice::Auto
                 } else {
                     ColorChoice::Never
@@ -114,19 +125,19 @@ fn parse_args() -> Args {
         }
     };
 
-    let input_mode = if m.contains_id("package") {
+    let input_mode = if m.get_flag("package") {
         InputMode::Package
-    } else if m.contains_id("text_listing") {
-        InputMode::TextList(m.contains_id("check_filesystem"))
+    } else if m.get_flag("text_listing") {
+        InputMode::TextList(m.get_flag("check_filesystem"))
     } else {
         InputMode::Path
     };
 
     Args {
         color_choice,
-        pager: m.contains_id("pager"),
+        pager: m.get_flag("pager"),
         input_mode,
-        inputs: m.get_many("input").unwrap().cloned().collect(),
+        inputs: m.remove_many("input").unwrap().collect(),
     }
 }
 
