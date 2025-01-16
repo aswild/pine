@@ -48,7 +48,7 @@ const DEFAULT_BUF_SIZE: usize = 8192;
 /// See https://github.com/libarchive/libarchive/issues/587 and
 /// https://github.com/mpv-player/mpv/commit/1e70e82baa9193f6f027338b0fab0f5078971fbe
 pub fn fix_posix_locale_for_libarchive() {
-    let empty = CStr::from_bytes_with_nul(b"\0").unwrap();
+    let empty = c"";
     unsafe {
         libc::setlocale(libc::LC_CTYPE, empty.as_ptr());
     }
@@ -257,7 +257,7 @@ impl<R: Read> ArchiveReader<R> {
             Err(err) => {
                 // if reading fails, we must call archive_set_error and return -1
                 let errno = err.raw_os_error().unwrap_or(libc::EINVAL);
-                let msg = CStr::from_bytes_with_nul(b"error reading archive input\0").unwrap();
+                let msg = c"error reading archive input";
                 // archive_set_error is variadic and takes a printf-like format. for simplicity,
                 // just use a constant error message.
                 ffi::archive_set_error(archive, errno, msg.as_ptr());
@@ -369,7 +369,7 @@ impl<R: Read + Seek> ArchiveReader<R> {
             libc::SEEK_END => SeekFrom::End(offset),
             other => {
                 // this probably indicates a bug in libarchive
-                let fmt = CStr::from_bytes_with_nul(b"invalid seek whence %d\0").unwrap();
+                let fmt = c"invalid seek whence %d";
                 ffi::archive_set_error(archive, libc::EINVAL, fmt.as_ptr(), other);
                 return ffi::ARCHIVE_FATAL.into();
             }
@@ -382,15 +382,14 @@ impl<R: Read + Seek> ArchiveReader<R> {
             Ok(Ok(newpos)) => newpos as ffi::la_int64_t,
             // seek succeeded, but we can't represent the new position as i64
             Ok(Err(_)) => {
-                let msg =
-                    CStr::from_bytes_with_nul(b"Seek position greater than i64::MAX\0").unwrap();
+                let msg = c"Seek position greater than i64::MAX";
                 ffi::archive_set_error(archive, libc::ERANGE, msg.as_ptr());
                 ffi::ARCHIVE_FATAL.into()
             }
             // the seek itself failed
             Err(err) => {
                 let errno = err.raw_os_error().unwrap_or(libc::EINVAL);
-                let msg = CStr::from_bytes_with_nul(b"error seeking archive file\0").unwrap();
+                let msg = c"error seeking archive file";
                 ffi::archive_set_error(archive, errno, msg.as_ptr());
                 ffi::ARCHIVE_FATAL.into()
             }

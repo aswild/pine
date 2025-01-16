@@ -240,7 +240,7 @@ impl Dpkg {
         let mut provides = HashMap::new();
         let mut current = DpkgStatus::default();
 
-        let info_file = BufReader::new(File::open(&path.join("status"))?);
+        let info_file = BufReader::new(File::open(path.join("status"))?);
         for line_ret in info_file.lines() {
             // get one line of text, will not contain the trailing LF
             let line = match line_ret {
