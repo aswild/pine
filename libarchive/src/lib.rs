@@ -18,31 +18,10 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::pin::Pin;
 
-// HACK! These constants are #defined like
-//    #define AE_IFMT ((__LA_MODE_T)0170000)
-// and bindgen can't handle that, it just skips them.  We can do something slightly less janky
-// later on so that the values don't have to be hard-coded, but for now just hack them in here.
-// The #[path] attributes are so that we can have this inner mod named ffi and also a file called
-// ffi.rs, since eventually this will go away (TODO).
-// See https://github.com/rust-lang/rust-bindgen/issues/753
-#[path = ""]
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
 #[allow(clippy::redundant_static_lifetimes)]
-pub mod ffi {
-    #[path = "ffi.rs"]
-    mod real_ffi;
-    pub use real_ffi::*;
-
-    pub const AE_IFMT: u32 = 0o170000;
-    pub const AE_IFREG: u32 = 0o100000;
-    pub const AE_IFLNK: u32 = 0o120000;
-    pub const AE_IFSOCK: u32 = 0o140000;
-    pub const AE_IFCHR: u32 = 0o020000;
-    pub const AE_IFBLK: u32 = 0o060000;
-    pub const AE_IFDIR: u32 = 0o040000;
-    pub const AE_IFIFO: u32 = 0o010000;
-}
+pub mod ffi;
 
 /// Evaluate an expression that returns a raw pointer, and panic if it's null.
 macro_rules! expect_nonnull {
